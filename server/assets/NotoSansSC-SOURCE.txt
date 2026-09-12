@@ -1,0 +1,8 @@
+Noto Sans SC Regular (static weight 400)
+
+Source: Google Noto CJK, NotoSansCJKsc-VF.ttf, static instance generated
+with fontTools at wght=400 for server-side jsPDF embedding. The bundled font
+contains the full Simplified Chinese glyph set (not a web subset); name
+metadata is normalized to family Noto Sans SC, style Regular, weight 400.
+Font software is distributed under the SIL Open Font License 1.1; see
+NotoSansSC-OFL.txt. Source project: https://github.com/notofonts/noto-cjk

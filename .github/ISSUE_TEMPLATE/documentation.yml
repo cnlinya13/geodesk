@@ -1,0 +1,22 @@
+name: Documentation issue
+description: 报告文档缺失、歧义或与实际行为不一致
+title: "[Docs] "
+labels: [documentation]
+body:
+  - type: input
+    id: location
+    attributes:
+      label: 文档位置
+      placeholder: README.md 或 docs/...
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: 问题描述
+    validations:
+      required: true
+  - type: textarea
+    id: correction
+    attributes:
+      label: 建议修正

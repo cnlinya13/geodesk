@@ -1,0 +1,26 @@
+name: Feature request
+description: 提议一个可验证的项目改进
+title: "[Feature] "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: 要解决的问题
+      description: 谁遇到什么问题，当前替代方案是什么？
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 建议方案
+      description: 请区分当前事实、假设和路线图设想。
+    validations:
+      required: true
+  - type: textarea
+    id: boundaries
+    attributes:
+      label: 范围与限制
+      description: 是否涉及数据库、模型费用、外网、权限或数据合规？
+    validations:
+      required: true
