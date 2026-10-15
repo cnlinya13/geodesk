@@ -192,7 +192,15 @@ export async function readTemporaryWebsitePage(
     deadlineAt: Date.now() + TEMPORARY_READ_TOTAL_TIMEOUT_MS,
     maxDecompressedBytes: TEMPORARY_READ_MAX_RESPONSE_BYTES,
     maxRedirects: TEMPORARY_READ_MAX_REDIRECTS,
-    ...(fetcher === fetch ? {} : { transport: transportFromFetcher(fetcher, signal) }),
+    ...(fetcher === fetch
+      ? {}
+      : {
+          transport: transportFromFetcher(fetcher, signal),
+          // Tests inject a fake transport; real DNS pinning would fail for
+          // reserved test domains, so bypass it with a placeholder public
+          // address (the injected transport ignores the address anyway).
+          resolveHost: async () => [{ address: '93.184.216.34', family: 4 as const }],
+        }),
     authorizeUrl: (url) => {
       if (robotsRequestActive) {
         // The rules file is relative to the submitted entry, and redirects
