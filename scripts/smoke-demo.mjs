@@ -51,6 +51,9 @@ async function startDemoIfNeeded() {
     cwd: new URL('..', import.meta.url),
     env: { ...process.env, FORCE_COLOR: '0' },
     stdio: ['ignore', 'pipe', 'pipe'],
+    // Own process group so teardown can kill the whole tree
+    // (npm -> concurrently -> tsx/vite), not just the npm wrapper.
+    detached: process.platform !== 'win32',
   })
   const collect = (chunk) => { output = `${output}${chunk}`.slice(-6000) }
   child.stdout.on('data', collect)
@@ -135,10 +138,22 @@ try {
   process.exitCode = 1
 } finally {
   if (ownsProcess && child && !child.killed) {
-    child.kill('SIGTERM')
+    // Kill the whole process group: SIGTERM to the npm wrapper alone
+    // leaves concurrently/tsx/vite orphaned, and their open stdio pipes
+    // keep this script's event loop alive forever (hangs CI).
+    try {
+      if (child.pid !== undefined) process.kill(-child.pid, 'SIGTERM')
+    } catch { /* already gone */ }
     await new Promise((resolve) => {
       const timer = setTimeout(resolve, 3_000)
       child.once('exit', () => { clearTimeout(timer); resolve() })
     })
+    try {
+      if (child.exitCode === null && child.pid !== undefined) process.kill(-child.pid, 'SIGKILL')
+    } catch { /* already gone */ }
+    // Never let surviving grandchildren hold our pipes open.
+    child.stdout?.destroy()
+    child.stderr?.destroy()
+    child.unref()
   }
 }
