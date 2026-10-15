@@ -2,8 +2,13 @@
 
 ## Unreleased
 
-- 在隔离 PostgreSQL 实例上完成真实迁移验收。
 - 增加用户管理（登录/注册）。
+
+## 0.1.2 - 2026-10-15
+
+- 真实迁移验收：在隔离的 PostgreSQL 16 实例上，18 个迁移在全新空库上全部成功执行，`npm run check:db` 确认表结构就绪。
+- `npm run check:public` 发布前扫描：1 项发现为 LICENSE 中的著作权人署名（预期内），无 `.env.local`、密钥或数据备份泄露风险。
+- 更新 README / README.cn.md 的"验证限制"章节，移除已解决的两项。
 
 ## 0.1.1 - 2026-10-15
 

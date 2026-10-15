@@ -143,8 +143,8 @@ npm run check:public
 
 ### 当前验证限制
 
-- 上一次本地依赖审计仍有中危与高危告警，涉及 `sanitize-html` 和 `undici`；本文档更新不包含修复，正式发布前应升级、回归并重新审计。
-- 独立 PostgreSQL 的实际迁移验收尚未完成；现有单元测试与演示不能替代该验收。
+- `sanitize-html` 与 `undici` 的依赖审计告警已在 0.1.1 修复（分别升级到 2.17.7 与 7.29.1），并跑过回归验证（`npm test`、`npm run build`、`npm run smoke:demo`）。
+- 0.1.2 已在隔离的 PostgreSQL 16 实例上完成真实迁移验收：18 个迁移在全新空库上全部成功执行，`npm run check:db` 确认表结构就绪。
 - 本地 Host/Origin 校验不能替代生产级身份认证与授权。
 
 详见 [测试说明](docs/testing.md) 和 [发布清单](docs/release-checklist.md)。

@@ -143,8 +143,8 @@ npm run check:public
 
 ### Current verification limits
 
-- The previous local dependency audit still reported moderate and high severity findings involving `sanitize-html` and `undici`. This documentation update does not fix them; upgrade, run regression checks, and audit again before release.
-- Real migration acceptance against an isolated PostgreSQL instance has not yet been completed. Existing unit tests and the demo do not replace it.
+- Dependency audit findings for `sanitize-html` and `undici` were fixed in 0.1.1 (upgraded to 2.17.7 and 7.29.1) with regression checks (`npm test`, `npm run build`, `npm run smoke:demo`).
+- Real migration acceptance was completed in 0.1.2 against an isolated PostgreSQL 16 instance: all 18 migrations applied cleanly on a fresh database and `npm run check:db` reported the schema ready.
 - Local Host/Origin validation does not replace production-grade authentication and authorization.
 
 See the [testing guide](docs/testing.md) and [release checklist](docs/release-checklist.md).
