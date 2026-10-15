@@ -2,9 +2,13 @@
 
 ## Unreleased
 
-- 修复 npm audit 报告的 moderate/high 级别问题（sanitize-html、undici），升级后跑回归验证。
 - 在隔离 PostgreSQL 实例上完成真实迁移验收。
 - 增加用户管理（登录/注册）。
+
+## 0.1.1 - 2026-10-15
+
+- 修复 npm audit moderate/high：sanitize-html 升级到 2.17.7（修复 CVE-2026-63670、CVE-2026-84371 两个 XSS），undici 升级到 7.29.1（修复 TLS 证书校验绕过与多项 DoS）。
+- 回归验证：`npm test` 706/712 通过（6 个失败为升级前已存在，经原版本基线确认与本次升级无关）、`npm run build` 通过、`npm run smoke:demo` 通过。
 
 ## 0.1.0 - 2026-09-12
 

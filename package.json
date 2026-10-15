@@ -1,7 +1,7 @@
 {
   "name": "geodesk",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "license": "MIT",
   "type": "module",
   "engines": {
@@ -31,8 +31,8 @@
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "react-markdown": "^10.1.0",
-    "sanitize-html": "^2.17.5",
-    "undici": "7.28.0"
+    "sanitize-html": "^2.17.7",
+    "undici": "^7.29.1"
   },
   "devDependencies": {
     "@types/node": "^26.4.1",
