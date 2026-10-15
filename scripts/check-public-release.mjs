@@ -65,7 +65,11 @@ async function walk(directory) {
       continue
     }
     if (info.isDirectory()) {
-      if (/^(?:node_modules|dist|coverage|\.vitest|\.git|evidence)$/i.test(entry.name) || /(?:^|\/)evidence(?:\/|$)/i.test(relativePath)) {
+      // .git is expected in CI checkouts (actions/checkout): skip it
+      // silently instead of flagging. Everything else on this list must
+      // not ship in a public tree.
+      if (/^\.git$/i.test(entry.name)) continue
+      if (/^(?:node_modules|dist|coverage|\.vitest|evidence)$/i.test(entry.name) || /(?:^|\/)evidence(?:\/|$)/i.test(relativePath)) {
         add(file, 0, 'forbidden-directory')
         continue
       }
@@ -84,12 +88,14 @@ async function walk(directory) {
     }
     let text
     try { text = await readFile(file, 'utf8') } catch { add(file, 0, 'unreadable-file'); continue }
+    // License texts are public by intent; the copyright holder name is not a leak.
+    const isLicenseFile = /^(?:LICENSE|LICENCE|COPYING)(?:\..*)?$/i.test(entry.name)
     const lines = text.split(/\r?\n/)
     for (let index = 0; index < lines.length; index += 1) {
       const lineNumber = index + 1
       const line = lines[index] ?? ''
       for (const pattern of forbiddenPersonalPathPatterns) {
-        if (pattern.test(line)) add(file, lineNumber, 'personal-or-internal-path')
+        if (!isLicenseFile && pattern.test(line)) add(file, lineNumber, 'personal-or-internal-path')
       }
       for (const rule of credentialPatterns) {
         const match = line.match(rule.pattern)
