@@ -49,6 +49,28 @@ import {
   LOCAL_RUNTIME_HOST,
 } from '../local-runtime-config.ts'
 import type { Project, ProjectDetail, ProjectMutation } from './db.ts'
+import {
+  buildSessionClearCookie,
+  buildSessionSetCookie,
+  hashPassword,
+  isLoginLocked,
+  issueSessionToken,
+  normalizeDisplayName,
+  normalizeUsername,
+  recordLoginFailure,
+  recordLoginSuccess,
+  sessionTokenFromCookieHeader,
+  validatePassword,
+  verifyPassword,
+  verifySessionToken,
+} from './auth.ts'
+import {
+  countAdmins,
+  createUser,
+  findUserByUsername,
+  findUserRowById,
+  publicUserFromRow,
+} from './auth-db.ts'
 
 const host = LOCAL_RUNTIME_HOST
 const port = LOCAL_RUNTIME_API_PORT
@@ -787,6 +809,118 @@ export async function handleRequest(request: IncomingMessage, response: ServerRe
     } catch {
       console.error('[api] database health check failed')
       sendJson(response, 503, { ok: false, error: 'database_unavailable' })
+    }
+    return
+  }
+
+  // ---- v0.2.1 用户账号：注册 / 登录 / 登出 / 会话 ----
+  type AuthBody = ProjectBody & { username?: unknown; password?: unknown; displayName?: unknown }
+  if (request.method === 'POST' && pathname === '/api/auth/register') {
+    let body: ProjectBody
+    try {
+      body = await readBody(request)
+    } catch {
+      sendError(response, 400, 'invalid_request', '请求格式不正确')
+      return
+    }
+    const authBody = body as AuthBody
+    const username = normalizeUsername(authBody.username)
+    const plainPassword = validatePassword(authBody.password)
+    if (!username) {
+      sendError(response, 400, 'invalid_username', '用户名需为 3–32 位字母、数字、下划线或连字符')
+      return
+    }
+    if (!plainPassword) {
+      sendError(response, 400, 'password_too_short', '密码至少 8 位')
+      return
+    }
+    const displayName = normalizeDisplayName(authBody.displayName, username)
+    if (!displayName) {
+      sendError(response, 400, 'invalid_display_name', '显示名不能为空且不超过 64 个字符')
+      return
+    }
+    try {
+      if (await findUserByUsername(username)) {
+        sendError(response, 409, 'username_taken', '用户名已被注册')
+        return
+      }
+      // 首个注册的用户自动成为 admin
+      const role = (await countAdmins()) === 0 ? 'admin' : 'user'
+      const user = await createUser({ username, passwordHash: await hashPassword(plainPassword), displayName, role })
+      const token = await issueSessionToken({ userId: user.id, tokenVersion: 0 })
+      response.setHeader('Set-Cookie', buildSessionSetCookie(token))
+      sendJson(response, 201, { ok: true, user })
+    } catch (error) {
+      if (isUniqueViolation(error)) {
+        // 并发注册竞态：唯一约束兜底
+        sendError(response, 409, 'username_taken', '用户名已被注册')
+        return
+      }
+      console.error('[api] 注册失败')
+      sendError(response, 503, 'database_unavailable', '注册暂时无法完成，请稍后重试')
+    }
+    return
+  }
+
+  if (request.method === 'POST' && pathname === '/api/auth/login') {
+    let body: ProjectBody
+    try {
+      body = await readBody(request)
+    } catch {
+      sendError(response, 400, 'invalid_request', '请求格式不正确')
+      return
+    }
+    const authBody = body as AuthBody
+    const username = normalizeUsername(authBody.username)
+    const plainPassword = typeof authBody.password === 'string' ? authBody.password : null
+    if (!username || !plainPassword) {
+      sendError(response, 400, 'invalid_request', '请输入用户名和密码')
+      return
+    }
+    if (isLoginLocked(username)) {
+      sendError(response, 429, 'login_locked', '登录失败次数过多，请 15 分钟后再试')
+      return
+    }
+    try {
+      const user = await findUserByUsername(username)
+      // 不区分"用户不存在 / 密码错 / 已停用"，统一返回 invalid_credentials
+      const ok = user !== null && user.isActive && (await verifyPassword(plainPassword, user.passwordHash))
+      if (!ok) {
+        recordLoginFailure(username)
+        sendError(response, 401, 'invalid_credentials', '用户名或密码不正确')
+        return
+      }
+      recordLoginSuccess(username)
+      const token = await issueSessionToken({ userId: user.id, tokenVersion: user.tokenVersion })
+      response.setHeader('Set-Cookie', buildSessionSetCookie(token))
+      sendJson(response, 200, { ok: true, user: publicUserFromRow(user) })
+    } catch {
+      console.error('[api] 登录失败')
+      sendError(response, 503, 'database_unavailable', '登录暂时无法完成，请稍后重试')
+    }
+    return
+  }
+
+  if (request.method === 'POST' && pathname === '/api/auth/logout') {
+    response.setHeader('Set-Cookie', buildSessionClearCookie())
+    sendJson(response, 200, { ok: true })
+    return
+  }
+
+  if (request.method === 'GET' && pathname === '/api/auth/session') {
+    try {
+      const token = sessionTokenFromCookieHeader(request.headers.cookie)
+      const claims = token ? await verifySessionToken(token) : null
+      const row = claims ? await findUserRowById(claims.userId) : null
+      // token_version 对不上说明密码被改过/账号被重置/停用过，旧 token 即时失效
+      if (!row || !row.isActive || row.tokenVersion !== claims?.tokenVersion) {
+        sendError(response, 401, 'auth_required', '请先登录')
+        return
+      }
+      sendJson(response, 200, { ok: true, user: publicUserFromRow(row) })
+    } catch {
+      console.error('[api] 会话读取失败')
+      sendError(response, 503, 'database_unavailable', '会话暂时无法读取，请稍后重试')
     }
     return
   }
