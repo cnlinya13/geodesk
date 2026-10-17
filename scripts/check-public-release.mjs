@@ -12,6 +12,8 @@ const allowedPlaceholderValues = new Set([
   'synthetic-demo-model', 'geodesk-local-only', 'demo.example.invalid',
   // Exact non-secret fixture values used by redaction tests.
   'api-secret', 'another-secret', 'statement-secret', 'read-api-secret',
+  // Test-only passwords used by auth route tests (no real accounts).
+  'testpass123', 'AnotherPass123', 'LockedPass123', 'wrongpass1', 'wrongpass2',
 ])
 
 const fragment = (...parts) => parts.join('')
