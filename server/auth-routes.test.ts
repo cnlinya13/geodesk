@@ -5,7 +5,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import process from 'node:process'
 import { handleRequest } from './index.ts'
-import { hashPassword, resetSessionSecretCacheForTests } from './auth.ts'
+import { hashPassword, issueSessionToken, resetSessionSecretCacheForTests } from './auth.ts'
 
 type QueryResult = { rows: Array<Record<string, unknown>>; rowCount: number }
 type QueryResponder = (sql: string, values: unknown[] | undefined) => QueryResult | Promise<QueryResult>
@@ -106,49 +106,116 @@ beforeEach(() => {
   pgMock.state.responder = null
 })
 
-describe('POST /api/auth/register', () => {
-  it('首个用户注册成功成为 admin 并种下会话 Cookie', async () => {
-    const created = userRow({ role: 'admin', password_hash: await hashPassword('testpass123') })
-    pgMock.state.responder = (sql) => {
-      if (sql.includes('where username = $1')) return { rows: [], rowCount: 0 }
-      if (sql.includes("where role = 'admin'")) return { rows: [{ count: 0 }], rowCount: 1 }
-      if (sql.startsWith('insert into geo_users')) return { rows: [created], rowCount: 1 }
-      return { rows: [], rowCount: 0 }
-    }
-    const { statusCode, json, headers } = await callRoute('POST', '/api/auth/register', {
-      username: 'Alice',
+describe('POST /api/auth/register（v0.2.2：仅 admin 可创建账号）', () => {
+  const adminRow = () => userRow({ id: '1', username: 'root', role: 'admin', password_hash: 'x' })
+  async function adminCookie(): Promise<string> {
+    return `geodesk_session=${await issueSessionToken({ userId: '1', tokenVersion: 0 })}`
+  }
+
+  it('未登录返回 401（守卫先拦截）', async () => {
+    pgMock.state.responder = () => ({ rows: [], rowCount: 0 })
+    const { statusCode, json } = await callRoute('POST', '/api/auth/register', {
+      username: 'bob',
       password: 'testpass123',
     })
+    expect(statusCode).toBe(401)
+    expect(json.error).toBe('auth_required')
+  })
+
+  it('非 admin 用户返回 403', async () => {
+    const user = userRow({ id: '2', username: 'bob', role: 'user' })
+    pgMock.state.responder = (sql) =>
+      sql.includes('where id = $1') ? { rows: [user], rowCount: 1 } : { rows: [], rowCount: 0 }
+    const cookie = `geodesk_session=${await issueSessionToken({ userId: '2', tokenVersion: 0 })}`
+    const { statusCode, json } = await callRoute(
+      'POST',
+      '/api/auth/register',
+      { username: 'carol', password: 'testpass123' },
+      cookie,
+    )
+    expect(statusCode).toBe(403)
+    expect(json.error).toBe('forbidden')
+  })
+
+  it('admin 创建账号成功，可指定 role，且不再自动登录', async () => {
+    const created = userRow({ id: '9', username: 'carol', role: 'admin', password_hash: await hashPassword('testpass123') })
+    let insertedValues: unknown[] | undefined
+    pgMock.state.responder = (sql, values) => {
+      if (sql.includes('where id = $1')) return { rows: [adminRow()], rowCount: 1 }
+      if (sql.includes('where username = $1')) return { rows: [], rowCount: 0 }
+      if (sql.startsWith('insert into geo_users')) {
+        insertedValues = values
+        return { rows: [created], rowCount: 1 }
+      }
+      return { rows: [], rowCount: 0 }
+    }
+    const { statusCode, json, headers } = await callRoute(
+      'POST',
+      '/api/auth/register',
+      { username: 'Carol', password: 'testpass123', role: 'admin' },
+      await adminCookie(),
+    )
     expect(statusCode).toBe(201)
     expect(json.ok).toBe(true)
-    expect(json.user.username).toBe('alice') // 入库前转小写
-    expect(json.user.role).toBe('admin') // 首个用户
+    expect(json.user.username).toBe('carol') // 入库前转小写
+    expect(json.user.role).toBe('admin')
+    expect(insertedValues?.[3]).toBe('admin') // role 参数透传到入库
     expect(json.user).not.toHaveProperty('passwordHash')
-    const setCookie = String(headers['set-cookie'] ?? '')
-    expect(setCookie).toContain('geodesk_session=')
-    expect(setCookie).toContain('HttpOnly')
+    expect(headers['set-cookie']).toBeUndefined() // 不再自动种会话 Cookie
   })
 
   it('用户名重复返回 409', async () => {
-    pgMock.state.responder = (sql) =>
-      sql.includes('where username = $1')
-        ? { rows: [userRow()], rowCount: 1 }
-        : { rows: [], rowCount: 0 }
-    const { statusCode, json } = await callRoute('POST', '/api/auth/register', {
-      username: 'alice',
-      password: 'testpass123',
-    })
+    pgMock.state.responder = (sql) => {
+      if (sql.includes('where id = $1')) return { rows: [adminRow()], rowCount: 1 }
+      if (sql.includes('where username = $1')) return { rows: [userRow()], rowCount: 1 }
+      return { rows: [], rowCount: 0 }
+    }
+    const { statusCode, json } = await callRoute(
+      'POST',
+      '/api/auth/register',
+      { username: 'alice', password: 'testpass123' },
+      await adminCookie(),
+    )
     expect(statusCode).toBe(409)
     expect(json.error).toBe('username_taken')
   })
 
   it('非法用户名 / 短密码返回 400', async () => {
-    const bad1 = await callRoute('POST', '/api/auth/register', { username: 'a!', password: 'testpass123' })
+    pgMock.state.responder = (sql) =>
+      sql.includes('where id = $1') ? { rows: [adminRow()], rowCount: 1 } : { rows: [], rowCount: 0 }
+    const cookie = await adminCookie()
+    const bad1 = await callRoute('POST', '/api/auth/register', { username: 'a!', password: 'testpass123' }, cookie)
     expect(bad1.statusCode).toBe(400)
     expect(bad1.json.error).toBe('invalid_username')
-    const bad2 = await callRoute('POST', '/api/auth/register', { username: 'bob', password: 'short' })
+    const bad2 = await callRoute('POST', '/api/auth/register', { username: 'bob', password: 'short' }, cookie)
     expect(bad2.statusCode).toBe(400)
     expect(bad2.json.error).toBe('password_too_short')
+  })
+})
+
+describe('v0.2.2 登录态守卫', () => {
+  it('未登录访问 /api/projects 返回 401', async () => {
+    pgMock.state.responder = () => ({ rows: [], rowCount: 0 })
+    const { statusCode, json } = await callRoute('GET', '/api/projects')
+    expect(statusCode).toBe(401)
+    expect(json.error).toBe('auth_required')
+  })
+
+  it('登录后访问 /api/projects 不再被守卫拦截', async () => {
+    const user = userRow({ id: '2', username: 'bob', role: 'user' })
+    pgMock.state.responder = (sql) =>
+      sql.includes('where id = $1') ? { rows: [user], rowCount: 1 } : { rows: [], rowCount: 0 }
+    const cookie = `geodesk_session=${await issueSessionToken({ userId: '2', tokenVersion: 0 })}`
+    const { statusCode } = await callRoute('GET', '/api/projects', undefined, cookie)
+    expect(statusCode).not.toBe(401)
+  })
+
+  it('健康检查与登录接口不需要登录态', async () => {
+    pgMock.state.responder = () => ({ rows: [], rowCount: 0 })
+    const health = await callRoute('GET', '/api/health/database')
+    expect(health.statusCode).not.toBe(401)
+    const login = await callRoute('POST', '/api/auth/login', {})
+    expect(login.statusCode).toBe(400) // 参数缺失，说明已通过守卫进入处理器
   })
 })
 

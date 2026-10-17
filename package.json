@@ -13,6 +13,7 @@
     "build": "tsc -b && vite build",
     "test": "vitest run",
     "check:db": "tsx scripts/check-db.ts",
+    "admin:create": "tsx scripts/create-admin.ts",
     "preview": "vite preview",
     "migrate:db": "tsx scripts/migrate-db.ts",
     "demo": "concurrently --kill-others-on-fail --names demo-api,demo-web \"tsx scripts/demo-server.ts\" \"vite --config vite.demo.config.ts\"",

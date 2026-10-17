@@ -41,11 +41,42 @@ vi.mock('./db.ts', () => ({
   updateProjectWebsiteWithChange: vi.fn(),
 }))
 
+// v0.2.2 登录态守卫：测试用固定登录用户，会话 Cookie 由 issueSessionToken 签发
+vi.mock('./auth-db.ts', () => ({
+  createUser: vi.fn(),
+  findUserByUsername: vi.fn(),
+  findUserRowById: vi.fn(async () => ({
+    id: '1',
+    username: 'tester',
+    displayName: 'Tester',
+    role: 'user',
+    isActive: true,
+    createdAt: '',
+    updatedAt: '',
+    passwordHash: 'x',
+    tokenVersion: 0,
+  })),
+  publicUserFromRow: vi.fn((row: Record<string, unknown>) => ({
+    id: String(row.id),
+    username: String(row.username),
+    displayName: String(row.displayName),
+    role: row.role,
+    isActive: row.isActive,
+    createdAt: String(row.createdAt),
+    updatedAt: String(row.updatedAt),
+  })),
+}))
+
 describe('AI task duplicate acceptance', () => {
   let handleRequest: (request: IncomingMessage, response: ServerResponse) => Promise<void>
 
+  let sessionCookie = ''
+
   beforeAll(async () => {
-    ({ handleRequest } = await import('./index.ts'))
+    process.env.GEODESK_SESSION_SECRET = 'test-secret'
+    const { issueSessionToken } = await import('./auth.ts')
+    sessionCookie = `geodesk_session=${await issueSessionToken({ userId: '1', tokenVersion: 0 })}`
+    ;({ handleRequest } = await import('./index.ts'))
   })
 
   beforeEach(() => {
@@ -59,7 +90,7 @@ describe('AI task duplicate acceptance', () => {
     Object.assign(request, {
       method: 'POST',
       url: pathname,
-      headers: { host: '127.0.0.1:8787' },
+      headers: { host: '127.0.0.1:8787', cookie: sessionCookie },
     })
     return request
   }
@@ -151,7 +182,7 @@ describe('AI task duplicate acceptance', () => {
     Object.assign(bodyRequest, {
       method: 'POST',
       url: '/api/projects/1/questions/generate',
-      headers: { host: '127.0.0.1:8787', 'content-type': 'application/json' },
+      headers: { host: '127.0.0.1:8787', 'content-type': 'application/json', cookie: sessionCookie },
     })
 
     await handleRequest(bodyRequest, output.value)
@@ -175,7 +206,7 @@ describe('AI task duplicate acceptance', () => {
     mocks.getAiTask.mockResolvedValue(task)
     mocks.getProjectDetail.mockResolvedValue({ id: '1' })
     const requestValue = request('/api/projects/1/ai-tasks/question-task-stream-1')
-    requestValue.headers = { host: '127.0.0.1:8787', accept: 'application/x-ndjson' }
+    requestValue.headers = { host: '127.0.0.1:8787', accept: 'application/x-ndjson', cookie: sessionCookie }
     requestValue.method = 'GET'
     const output = streamingResponse()
 
@@ -211,7 +242,7 @@ describe('AI task duplicate acceptance', () => {
     mocks.getAiTask.mockResolvedValue(task)
     mocks.getProjectDetail.mockResolvedValueOnce({ id: '1' }).mockRejectedValueOnce(new Error('database unavailable'))
     const requestValue = request('/api/projects/1/ai-tasks/question-task-stream-2')
-    requestValue.headers = { host: '127.0.0.1:8787', accept: 'application/x-ndjson' }
+    requestValue.headers = { host: '127.0.0.1:8787', accept: 'application/x-ndjson', cookie: sessionCookie }
     requestValue.method = 'GET'
     const output = streamingResponse()
 

@@ -65,11 +65,11 @@ import {
   verifySessionToken,
 } from './auth.ts'
 import {
-  countAdmins,
   createUser,
   findUserByUsername,
   findUserRowById,
   publicUserFromRow,
+  type PublicUser,
 } from './auth-db.ts'
 
 const host = LOCAL_RUNTIME_HOST
@@ -104,6 +104,32 @@ function sendJson(response: ServerResponse, statusCode: number, body: unknown): 
 
 function sendError(response: ServerResponse, statusCode: number, error: string, message: string): void {
   sendJson(response, statusCode, { ok: false, error, message })
+}
+
+// ---------------------------------------------------------------------------
+// v0.2.2 登录态守卫
+// ---------------------------------------------------------------------------
+
+/** 从 Cookie 会话中解析当前用户；未登录 / 会话失效 / 账号停用时返回 null。 */
+async function getSessionUser(request: IncomingMessage): Promise<PublicUser | null> {
+  try {
+    const token = sessionTokenFromCookieHeader(request.headers.cookie)
+    const claims = token ? await verifySessionToken(token) : null
+    const row = claims ? await findUserRowById(claims.userId) : null
+    // token_version 对不上说明密码被改过/账号被重置/停用过，旧 token 即时失效
+    if (!row || !row.isActive || row.tokenVersion !== claims?.tokenVersion) return null
+    return publicUserFromRow(row)
+  } catch {
+    return null
+  }
+}
+
+/** 不需要登录态即可访问的 /api/* 白名单（登录/登出/会话自查/健康检查）。 */
+function isAuthOpenRoute(method: string, pathname: string): boolean {
+  return (
+    (method === 'POST' && (pathname === '/api/auth/login' || pathname === '/api/auth/logout')) ||
+    (method === 'GET' && (pathname === '/api/auth/session' || pathname === '/api/health/database'))
+  )
 }
 
 /**
@@ -813,9 +839,31 @@ export async function handleRequest(request: IncomingMessage, response: ServerRe
     return
   }
 
-  // ---- v0.2.1 用户账号：注册 / 登录 / 登出 / 会话 ----
-  type AuthBody = ProjectBody & { username?: unknown; password?: unknown; displayName?: unknown }
+  // ---- v0.2.2 登录态守卫：/api/*（除白名单）未登录返回 401 ----
+  // 白名单：登录、登出、会话自查、健康检查。注册接口（POST /api/auth/register）
+  // 不在白名单内，由其处理器自行要求 admin 权限（Q1：仅 admin 可创建账号）。
+  if (pathname.startsWith('/api/') && !isAuthOpenRoute(request.method ?? '', pathname)) {
+    const me = await getSessionUser(request)
+    if (!me) {
+      sendError(response, 401, 'auth_required', '请先登录')
+      return
+    }
+    ;(request as { authUser?: PublicUser }).authUser = me
+  }
+
+  // ---- v0.2.2 用户账号：仅 admin 可创建账号（Q1 决策：不开放注册）----
+  // 首个 admin 由本地 CLI（npm run admin:create）创建，不走网络接口。
+  type AuthBody = ProjectBody & { username?: unknown; password?: unknown; displayName?: unknown; role?: unknown }
   if (request.method === 'POST' && pathname === '/api/auth/register') {
+    const me = (request as { authUser?: PublicUser }).authUser
+    if (!me) {
+      sendError(response, 401, 'auth_required', '请先登录')
+      return
+    }
+    if (me.role !== 'admin') {
+      sendError(response, 403, 'forbidden', '仅管理员可创建账号')
+      return
+    }
     let body: ProjectBody
     try {
       body = await readBody(request)
@@ -839,25 +887,22 @@ export async function handleRequest(request: IncomingMessage, response: ServerRe
       sendError(response, 400, 'invalid_display_name', '显示名不能为空且不超过 64 个字符')
       return
     }
+    const role = authBody.role === 'admin' ? 'admin' : 'user'
     try {
       if (await findUserByUsername(username)) {
         sendError(response, 409, 'username_taken', '用户名已被注册')
         return
       }
-      // 首个注册的用户自动成为 admin
-      const role = (await countAdmins()) === 0 ? 'admin' : 'user'
       const user = await createUser({ username, passwordHash: await hashPassword(plainPassword), displayName, role })
-      const token = await issueSessionToken({ userId: user.id, tokenVersion: 0 })
-      response.setHeader('Set-Cookie', buildSessionSetCookie(token))
       sendJson(response, 201, { ok: true, user })
     } catch (error) {
       if (isUniqueViolation(error)) {
-        // 并发注册竞态：唯一约束兜底
+        // 并发创建竞态：唯一约束兜底
         sendError(response, 409, 'username_taken', '用户名已被注册')
         return
       }
-      console.error('[api] 注册失败')
-      sendError(response, 503, 'database_unavailable', '注册暂时无法完成，请稍后重试')
+      console.error('[api] 创建账号失败')
+      sendError(response, 503, 'database_unavailable', '创建账号暂时无法完成，请稍后重试')
     }
     return
   }
@@ -908,20 +953,12 @@ export async function handleRequest(request: IncomingMessage, response: ServerRe
   }
 
   if (request.method === 'GET' && pathname === '/api/auth/session') {
-    try {
-      const token = sessionTokenFromCookieHeader(request.headers.cookie)
-      const claims = token ? await verifySessionToken(token) : null
-      const row = claims ? await findUserRowById(claims.userId) : null
-      // token_version 对不上说明密码被改过/账号被重置/停用过，旧 token 即时失效
-      if (!row || !row.isActive || row.tokenVersion !== claims?.tokenVersion) {
-        sendError(response, 401, 'auth_required', '请先登录')
-        return
-      }
-      sendJson(response, 200, { ok: true, user: publicUserFromRow(row) })
-    } catch {
-      console.error('[api] 会话读取失败')
-      sendError(response, 503, 'database_unavailable', '会话暂时无法读取，请稍后重试')
+    const me = await getSessionUser(request)
+    if (!me) {
+      sendError(response, 401, 'auth_required', '请先登录')
+      return
     }
+    sendJson(response, 200, { ok: true, user: me })
     return
   }
 

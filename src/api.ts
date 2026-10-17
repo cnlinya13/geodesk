@@ -1247,3 +1247,42 @@ export async function downloadMonitoringDeliveryReportPdf(id: string): Promise<D
   if (blob.size === 0) throw new ApiError(response.status, 'invalid_response', '服务返回了空的交付报告PDF')
   return { blob, filename: responseFilename(response) }
 }
+
+/* ------------------------------------------------------------------------ */
+/* v0.2.2 用户账号：会话                                                      */
+/* ------------------------------------------------------------------------ */
+
+/** 与服务端 PublicUser 对齐的对外用户形态（永不含密码哈希）。 */
+export interface CurrentUser {
+  id: string
+  username: string
+  displayName: string
+  role: 'admin' | 'user'
+  isActive: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+/** 读取当前会话；未登录时返回 null（不抛错，供启动时恢复会话用）。 */
+export async function getSession(): Promise<CurrentUser | null> {
+  try {
+    const result = await request<{ ok: true; user: CurrentUser }>('/api/auth/session')
+    return result.user
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 401) return null
+    throw error
+  }
+}
+
+export async function login(username: string, password: string): Promise<CurrentUser> {
+  const result = await request<{ ok: true; user: CurrentUser }>('/api/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password }),
+  })
+  return result.user
+}
+
+export async function logout(): Promise<void> {
+  await request<{ ok: true }>('/api/auth/logout', { method: 'POST' })
+}

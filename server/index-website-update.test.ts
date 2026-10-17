@@ -46,11 +46,42 @@ vi.mock('./diagnosis-report-service.ts', () => ({
   startDiagnosisReportRefresh: mocks.startDiagnosisReportRefresh,
 }))
 
+// v0.2.2 登录态守卫：测试用固定登录用户，会话 Cookie 由 issueSessionToken 签发
+vi.mock('./auth-db.ts', () => ({
+  createUser: vi.fn(),
+  findUserByUsername: vi.fn(),
+  findUserRowById: vi.fn(async () => ({
+    id: '1',
+    username: 'tester',
+    displayName: 'Tester',
+    role: 'user',
+    isActive: true,
+    createdAt: '',
+    updatedAt: '',
+    passwordHash: 'x',
+    tokenVersion: 0,
+  })),
+  publicUserFromRow: vi.fn((row: Record<string, unknown>) => ({
+    id: String(row.id),
+    username: String(row.username),
+    displayName: String(row.displayName),
+    role: row.role,
+    isActive: row.isActive,
+    createdAt: String(row.createdAt),
+    updatedAt: String(row.updatedAt),
+  })),
+}))
+
 describe('website-fill project PATCH persistence boundary', () => {
   let handleRequest: (request: IncomingMessage, response: ServerResponse) => Promise<void>
 
+  let sessionCookie = ''
+
   beforeAll(async () => {
-    ({ handleRequest } = await import('./index.ts'))
+    process.env.GEODESK_SESSION_SECRET = 'test-secret'
+    const { issueSessionToken } = await import('./auth.ts')
+    sessionCookie = `geodesk_session=${await issueSessionToken({ userId: '1', tokenVersion: 0 })}`
+    ;({ handleRequest } = await import('./index.ts'))
   })
 
   beforeEach(() => {
@@ -76,6 +107,7 @@ describe('website-fill project PATCH persistence boundary', () => {
       url: pathname,
       headers: {
         host: '127.0.0.1:8787',
+        cookie: sessionCookie,
         'content-type': 'application/json',
         ...(locale ? { 'x-geo-locale': locale } : {}),
       },
@@ -111,6 +143,7 @@ describe('website-fill project PATCH persistence boundary', () => {
       url: pathname,
       headers: {
         host: '127.0.0.1:8787',
+        cookie: sessionCookie,
         ...(locale ? { 'x-geo-locale': locale } : {}),
         ...(acceptLanguage ? { 'accept-language': acceptLanguage } : {}),
       },

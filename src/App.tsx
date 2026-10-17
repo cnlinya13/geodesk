@@ -18,6 +18,7 @@ import {
   fetchProjects,
   generateInitialDiagnosisReport,
   generateProjectArticles,
+  getSession,
   observeQuestionGenerationTask,
   regenerateQuestions,
   saveMonitoringDeliveryReportPdf,
@@ -28,6 +29,7 @@ import {
   setQuestionLocked as setQuestionLockedRequest,
   updateProject,
   writeProjectArticle,
+  type CurrentUser,
   type ProjectFormValues,
   type QuestionGenerationProgress,
 } from './api'
@@ -3568,6 +3570,9 @@ export function ProjectWorkspace({ project, projectState, onRetry, onEdit, onUpd
 export default function App() {
   const { t } = useI18n()
   const [route, setRoute] = useState<Route>(() => routeFromLocation())
+  // v0.2.2 前端会话保持：启动时恢复登录态（登录门禁 UI 在 v0.2.3 接入）。
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null)
+  const [sessionChecked, setSessionChecked] = useState(false)
   const [projects, setProjects] = useState<Project[]>([])
   const [listState, setListState] = useState<LoadState>('idle')
   const [search, setSearch] = useState('')
@@ -3625,6 +3630,23 @@ export default function App() {
     window.addEventListener('popstate', onPopState)
     return () => window.removeEventListener('popstate', onPopState)
   }, [invalidateWorkspaceSession])
+
+  useEffect(() => {
+    let cancelled = false
+    void getSession()
+      .then((user) => {
+        if (!cancelled) setCurrentUser(user)
+      })
+      .catch(() => {
+        if (!cancelled) setCurrentUser(null)
+      })
+      .finally(() => {
+        if (!cancelled) setSessionChecked(true)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     if (route.kind === 'list') {

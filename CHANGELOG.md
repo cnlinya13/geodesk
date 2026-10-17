@@ -2,9 +2,9 @@
 
 ## Unreleased
 
-- v0.2.1 用户账号地基：019 迁移建 geo_users 表；注册/登录/登出/会话接口（/api/auth/*）；scrypt 密码哈希（N=16384, r=8, p=1）；服务端无状态 HMAC 会话 token（HttpOnly Cookie，改密码即时失效旧会话）；首个注册用户自动成为 admin；同一用户名 5 次登录失败锁定 15 分钟。
+- v0.2.2 登录态守卫：`/api/*`（除登录/登出/会话自查/健康检查白名单）未登录返回 401；`POST /api/auth/register` 改为仅 admin 可调用（Q1：不开放注册），支持指定 role；新增 `npm run admin:create` 本地 CLI 创建首个管理员账号；前端启动时调 `/api/auth/session` 恢复会话。
 
-## 0.1.2 - 2026-10-15
+## 0.2.1 - 2026-10-17
 
 - 真实迁移验收：在隔离的 PostgreSQL 16 实例上，18 个迁移在全新空库上全部成功执行，`npm run check:db` 确认表结构就绪。
 - `npm run check:public` 发布前扫描：1 项发现为 LICENSE 中的著作权人署名（预期内），无 `.env.local`、密钥或数据备份泄露风险。
