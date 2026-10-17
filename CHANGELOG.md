@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.3.0 - 2026-10-17
+
+- v0.3.0 可替换模型适配器 + 模型设置页：`ModelAdapter` 接口（豆包为首个实现，一家一家单独接）；021 迁移建 model_settings 表；`GET/PUT /api/admin/settings/model`（admin-only，GET 不返回 key 明文）；设置页全局统一选模型（provider 下拉 + API Key + 模型 ID）；`resolveModelConfig()` 数据库优先、环境变量兜底；6 个业务模块改走 adapter。
+
 ## 0.2.4 - 2026-10-17
 
 - v0.2.4 改密/重置/用户管理：020 迁移加 must_change_password；`POST /api/auth/password/change`（凭旧密码改密，换发新会话）；admin 接口 `GET /api/admin/users`、`POST /api/admin/users/:id/password/reset`（临时密码＋下次登录强制改密）、`PATCH /api/admin/users/:id`（改角色/停用，不能动自己）；`npm run admin:reset-password` 本地 CLI 兜底；前端用户管理页（列表/重置/停用/改角色）、改密页、强制改密门禁。

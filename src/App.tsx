@@ -35,6 +35,7 @@ import {
 } from './api'
 import { copyArticleContent } from './article-copy'
 import { ForceChangePasswordPage, LoginPage, UserMenu } from './components/Auth'
+import { ModelSettingsPage } from './components/ModelSettings'
 import { Button, Field, GlobalHeader, Icon, IconButton, MetricCard, Modal, OperationBar, OperationFeedback, PhaseNav, stages, StatusBadge } from './components/UI'
 import { TechnicalAuditPanel } from './components/TechnicalAuditPanel'
 import { ContentAuditPanel } from './components/ContentAuditPanel'
@@ -121,7 +122,7 @@ export function questionCategoryLabel(category: unknown, locale: Locale = 'zh-CN
   return translate(locale, 'category.unknown')
 }
 
-type Route = { kind: 'list' } | { kind: 'project'; projectId: string } | { kind: 'report'; projectId: string }
+type Route = { kind: 'list' } | { kind: 'project'; projectId: string } | { kind: 'report'; projectId: string } | { kind: 'settings' }
 type LoadState = 'idle' | 'loading' | 'error' | 'ready'
 export type StageActionErrors = Partial<Record<StageId, UiMessage>>
 export type PendingProjectSave = { projectId: string; onSaved: () => void }
@@ -148,6 +149,7 @@ function clearStageActionError(errors: StageActionErrors, stage: StageId): Stage
 
 function routeFromLocation(): Route {
   if (typeof window === 'undefined') return { kind: 'list' }
+  if (window.location.hash === '#/settings') return { kind: 'settings' }
   const reportMatch = window.location.hash.match(/^#\/project\/(\d+)\/diagnosis-report$/)
   if (reportMatch?.[1]) return { kind: 'report', projectId: reportMatch[1] }
   const match = window.location.hash.match(/^#\/project\/(\d+)$/)
@@ -155,7 +157,7 @@ function routeFromLocation(): Route {
 }
 
 function navigate(route: Route, replace = false): void {
-  const hash = route.kind === 'list' ? '' : route.kind === 'report' ? `#/project/${route.projectId}/diagnosis-report` : `#/project/${route.projectId}`
+  const hash = route.kind === 'list' ? '' : route.kind === 'settings' ? '#/settings' : route.kind === 'report' ? `#/project/${route.projectId}/diagnosis-report` : `#/project/${route.projectId}`
   const next = `${window.location.pathname}${window.location.search}${hash}`
   if (replace) window.history.replaceState(null, '', next)
   else window.history.pushState(null, '', next)
@@ -3654,7 +3656,7 @@ export default function App() {
       selectedProjectLoadRef.current += 1
       void loadList()
     }
-    else void loadSelectedProject(route.projectId)
+    else if (route.kind === 'project' || route.kind === 'report') void loadSelectedProject(route.projectId)
   }, [loadList, loadSelectedProject, route])
 
   useEffect(() => {
@@ -3760,7 +3762,11 @@ export default function App() {
     else navigate({ kind: 'list' })
   }
 
-  const content = route.kind === 'list' ? (
+  const content = route.kind === 'settings' ? (
+    currentUser?.role === 'admin' ? <ModelSettingsPage /> : (
+      <ProjectList projects={projects} state={listState} search={search} onSearch={setSearch} onCreate={openCreate} onRetry={() => void loadList()} onOpen={openProject} />
+    )
+  ) : route.kind === 'list' ? (
     <ProjectList projects={projects} state={listState} search={search} onSearch={setSearch} onCreate={openCreate} onRetry={() => void loadList()} onOpen={openProject} />
   ) : route.kind === 'report' ? (
     <ProjectReportPage project={selectedProject} projectState={projectState} onRetry={() => void loadSelectedProject(route.projectId)} onBack={backToDiagnosis} onReportRefreshMetadata={(metadata) => {

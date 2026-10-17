@@ -711,3 +711,37 @@ describe('v0.2.4 改密与管理接口', () => {
     expect(seen).toContain('PATCH /api/admin/users/2')
   })
 })
+
+describe('v0.3.0 模型设置接口', () => {
+  it('getModelSettings 返回设置与 provider 列表', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        Response.json({
+          ok: true,
+          settings: { provider: 'doubao', modelId: 'm', hasApiKey: true },
+          providers: [{ providerId: 'doubao', displayName: '豆包' }],
+        }),
+      ),
+    )
+    const { getModelSettings } = await import('./api')
+    const { settings, providers } = await getModelSettings()
+    expect(settings.hasApiKey).toBe(true)
+    expect(providers).toHaveLength(1)
+  })
+
+  it('saveModelSettings 走 PUT', async () => {
+    let captured: { input: RequestInfo | URL; init?: RequestInit } | undefined
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        captured = { input, init }
+        return Response.json({ ok: true, settings: { provider: 'doubao', modelId: 'm', hasApiKey: true } })
+      }),
+    )
+    const { saveModelSettings } = await import('./api')
+    await saveModelSettings({ provider: 'doubao', modelId: 'm' })
+    expect(captured?.input).toBe('/api/admin/settings/model')
+    expect(captured?.init?.method).toBe('PUT')
+  })
+})

@@ -75,6 +75,8 @@ import {
   updateUser,
   type PublicUser,
 } from './auth-db.ts'
+import { getModelSettings, saveModelSettings } from './model-settings-db.ts'
+import { listProviders } from './model-adapters.ts'
 
 const host = LOCAL_RUNTIME_HOST
 const port = LOCAL_RUNTIME_API_PORT
@@ -1108,6 +1110,66 @@ export async function handleRequest(request: IncomingMessage, response: ServerRe
       } catch {
         console.error('[api] 更新用户失败')
         sendError(response, 503, 'database_unavailable', '更新用户暂时无法完成，请稍后重试')
+      }
+      return
+    }
+  }
+
+  // ---- v0.3.0 admin 接口：模型设置（读取/保存，全局统一）----
+  // GET 永不返回 apiKey 明文，只返回 hasApiKey；PUT 里 apiKey 为空表示不改动已有 key。
+  if (pathname === '/api/admin/settings/model') {
+    if (!requireAdmin(request, response)) return
+    if (request.method === 'GET') {
+      try {
+        const saved = await getModelSettings()
+        sendJson(response, 200, {
+          ok: true,
+          settings: {
+            provider: saved?.provider ?? 'doubao',
+            modelId: saved?.modelId ?? '',
+            hasApiKey: Boolean(saved?.apiKey?.trim()),
+          },
+          providers: listProviders(),
+        })
+      } catch {
+        console.error('[api] 模型设置读取失败')
+        sendError(response, 503, 'database_unavailable', '模型设置暂时无法读取，请稍后重试')
+      }
+      return
+    }
+    if (request.method === 'PUT') {
+      let body: ProjectBody
+      try {
+        body = await readBody(request)
+      } catch {
+        sendError(response, 400, 'invalid_request', '请求格式不正确')
+        return
+      }
+      const patch = body as { provider?: unknown; apiKey?: unknown; modelId?: unknown }
+      const provider = typeof patch.provider === 'string' ? patch.provider : ''
+      const modelId = typeof patch.modelId === 'string' ? patch.modelId.trim() : ''
+      const apiKey = typeof patch.apiKey === 'string' ? patch.apiKey : undefined
+      if (!provider || !listProviders().some((p) => p.providerId === provider)) {
+        sendError(response, 400, 'invalid_provider', '不支持的模型 provider')
+        return
+      }
+      if (!modelId) {
+        sendError(response, 400, 'invalid_request', '请填写模型 ID')
+        return
+      }
+      try {
+        const saved = await saveModelSettings({ provider, apiKey, modelId })
+        sendJson(response, 200, {
+          ok: true,
+          settings: {
+            provider: saved.provider,
+            modelId: saved.modelId,
+            hasApiKey: Boolean(saved.apiKey.trim()),
+          },
+        })
+      } catch {
+        console.error('[api] 模型设置保存失败')
+        sendError(response, 503, 'database_unavailable', '模型设置暂时无法保存，请稍后重试')
       }
       return
     }

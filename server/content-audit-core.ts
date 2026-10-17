@@ -2,12 +2,12 @@ import { createHash } from 'node:crypto'
 import {
   extractResponseText,
   parseJsonText,
-  requestDoubaoResponses,
   DoubaoResponsesError,
   type DoubaoFetch,
   type DoubaoInputItem,
   type DoubaoTimingEvent,
 } from './doubao-client.ts'
+import { getAdapter, type ModelAdapter } from './model-adapters.ts'
 import {
   DirectWebsiteReader,
   DirectWebsiteReaderError,
@@ -65,6 +65,8 @@ export type ContentAuditModelTimingEvent = DoubaoTimingEvent & {
 export type ContentAuditRunOptions = {
   apiKey: string
   modelId: string
+  /** v0.3.0：可替换模型适配器；缺省为豆包。 */
+  adapter?: ModelAdapter
   fetch?: DoubaoFetch
   endpoint?: string
   /** Zero means that the provider client imposes no local model deadline. */
@@ -927,23 +929,25 @@ class UsageTracker {
     const modelCall = this.modelCalls
     const inputChars = typeof input === 'string' ? input.length : JSON.stringify(input).length
     try {
-      const payload = await requestDoubaoResponses({
+      const adapter = this.options.adapter ?? getAdapter('doubao')
+      const result = await adapter.generate({
         apiKey: this.options.apiKey,
         modelId: this.options.modelId,
-        input,
+        prompt: input,
         tools,
-        textFormat,
-        store: false,
+        nativeTextFormat: textFormat,
+        stateless: true,
+        disableThinking: true,
         fetch: this.options.fetch,
         endpoint: this.options.endpoint,
         timeoutMs: this.options.timeoutMs ?? 0,
         timeoutScope: 'full',
-        thinking: { type: 'disabled' },
         signal: this.runSignal,
         onTiming: (event) => {
           try { this.options.onModelTiming?.({ ...event, phase: 'assessment', inputChars, modelCall }) } catch { /* telemetry only */ }
         },
       })
+      const payload = result.raw
       const root = asRecord(payload)
       const usage = asRecord(root?.usage)
       const number = (...keys: string[]): number | undefined => {

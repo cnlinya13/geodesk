@@ -11,6 +11,8 @@ import {
   setDiagnosisRunRequestedModel,
 } from './db.ts'
 import { DiagnosisCoreError, resolveRequestedModel, runDiagnosisCore, type DiagnosisProgress } from './diagnosis-core.ts'
+import { resolveModelConfig } from './model-settings-db.ts'
+import { getAdapter, type ModelAdapter } from './model-adapters.ts'
 import { startDiagnosisReportRefresh } from './diagnosis-report-service.ts'
 import type { DiagnosisReportLocale } from './diagnosis-report-locale.ts'
 import type { MonitoringUpdateEvent } from '../src/types.ts'
@@ -32,11 +34,9 @@ export type InitialDiagnosisCallbacks = {
 
 export type DiagnosisRunType = 'initial' | 'monitoring'
 
-function configuration(): { apiKey: string; modelId: string } {
-  return {
-    apiKey: process.env.DOUBAO_API_KEY?.trim() ?? '',
-    modelId: process.env.DOUBAO_MODEL_ID?.trim() ?? '',
-  }
+async function configuration(): Promise<{ apiKey: string; modelId: string; adapter: ModelAdapter }> {
+  const resolved = await resolveModelConfig()
+  return { apiKey: resolved.apiKey, modelId: resolved.modelId, adapter: getAdapter(resolved.provider) }
 }
 
 async function startOrResumeDiagnosis(
@@ -68,7 +68,7 @@ async function startOrResumeDiagnosis(
 
   const detail = await getProjectDetail(projectId)
   if (!detail) return null
-  const config = configuration()
+  const config = await configuration()
 
   try {
     let requestedModel = resolveRequestedModel(prepared.run.requestedModel, config.modelId, config.apiKey)
@@ -181,7 +181,7 @@ export async function generateInitialDiagnosisReport(
     return detail
   }
 
-  const config = configuration()
+  const config = await configuration()
   let requestedModel = resolveRequestedModel(run.requestedModel, config.modelId, config.apiKey)
 
   try {
@@ -203,6 +203,7 @@ export async function generateInitialDiagnosisReport(
       answers,
       apiKey: config.apiKey,
       modelId: requestedModel ?? '',
+      adapter: config.adapter,
       onAnalysisStart: async () => {
         const marked = await markDiagnosisRunAnalyzing(run.id, projectId, 'initial')
         if (marked === false) throw new InitialDiagnosisError('diagnosis_stale')

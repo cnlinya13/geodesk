@@ -4,11 +4,11 @@ import {
   extractResponseModel,
   extractResponseText,
   parseJsonText,
-  requestDoubaoResponses,
   DoubaoResponsesError,
   type DoubaoFetch,
   type DoubaoTimingCallback,
 } from './doubao-client.ts'
+import { getAdapter, type ModelAdapter } from './model-adapters.ts'
 import type { ContentAuditIssue, ContentAuditResult } from '../src/content-audit.ts'
 import {
   ARTICLE_OPTIMIZATION_DIRECTIONS,
@@ -83,6 +83,8 @@ export type ArticleGenerationInput = {
 export type ArticleGenerationOptions = {
   apiKey: string
   modelId: string
+  /** v0.3.0：可替换模型适配器；缺省为豆包。 */
+  adapter?: ModelAdapter
   fetch?: DoubaoFetch
   endpoint?: string
   timeoutMs?: number
@@ -643,18 +645,20 @@ async function requestArticleGeneration(
 ): Promise<{ payload: unknown; responseModel: string | null }> {
   let payload: unknown
   try {
-    payload = await requestDoubaoResponses({
-      apiKey: options.apiKey,
-      modelId: options.modelId,
-      input,
-      textFormat: { type: 'json_schema', name: 'geo_article_generation', strict: true, schema },
-      fetch: options.fetch,
-      endpoint: options.endpoint,
-      timeoutMs,
-      signal: options.signal,
-      timeoutScope: 'full',
-      onTiming: options.onTiming,
-    })
+    payload = (
+      await (options.adapter ?? getAdapter('doubao')).generate({
+        apiKey: options.apiKey,
+        modelId: options.modelId,
+        prompt: input,
+        jsonSchema: { name: 'geo_article_generation', schema },
+        fetch: options.fetch,
+        endpoint: options.endpoint,
+        timeoutMs,
+        signal: options.signal,
+        timeoutScope: 'full',
+        onTiming: options.onTiming,
+      })
+    ).raw
   } catch (error) {
     if (error instanceof DoubaoResponsesError) throw new ArticleGenerationError(error.message)
     throw new ArticleGenerationError('豆包文章生成请求失败')
@@ -775,24 +779,21 @@ export async function generateArticles(input: ArticleGenerationInput, options: A
   const prompt = buildArticlePrompt(input, options.maxContextChars ?? DEFAULT_MAX_CONTEXT_CHARS)
   let payload: unknown
   try {
-    payload = await requestDoubaoResponses({
-      apiKey: options.apiKey,
-      modelId: options.modelId,
-      input: prompt,
-      textFormat: {
-        type: 'json_schema',
-        name: 'geo_articles',
-        strict: true,
-        schema: articleSchema(),
-      },
-      fetch: options.fetch,
-      endpoint: options.endpoint,
-      // No implicit local total deadline.  The caller/provider signal is the
-      // source of truth unless an operation-specific timeout is explicit.
-      timeoutMs: options.timeoutMs ?? 0,
-      signal: options.signal,
-      timeoutScope: 'full',
-    })
+    payload = (
+      await (options.adapter ?? getAdapter('doubao')).generate({
+        apiKey: options.apiKey,
+        modelId: options.modelId,
+        prompt,
+        jsonSchema: { name: 'geo_articles', schema: articleSchema() },
+        fetch: options.fetch,
+        endpoint: options.endpoint,
+        // No implicit local total deadline.  The caller/provider signal is the
+        // source of truth unless an operation-specific timeout is explicit.
+        timeoutMs: options.timeoutMs ?? 0,
+        signal: options.signal,
+        timeoutScope: 'full',
+      })
+    ).raw
   } catch (error) {
     if (error instanceof DoubaoResponsesError) throw new ArticleGenerationError(error.message)
     throw new ArticleGenerationError('豆包文章生成请求失败')

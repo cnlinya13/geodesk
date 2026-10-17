@@ -477,3 +477,86 @@ describe('v0.2.4 改密与 admin 接口', () => {
     })
   })
 })
+
+describe('v0.3.0 模型设置接口', () => {
+  const adminRow = () =>
+    userRow({ id: '1', username: 'root', role: 'admin', password_hash: 'x', token_version: 0 })
+  async function adminCookie(): Promise<string> {
+    return `geodesk_session=${await issueSessionToken({ userId: '1', tokenVersion: 0 })}`
+  }
+  async function userCookie(): Promise<string> {
+    return `geodesk_session=${await issueSessionToken({ userId: '2', tokenVersion: 0 })}`
+  }
+  function sessionResponder(row: Record<string, unknown>) {
+    return (sql: string) =>
+      sql.includes('where id = $1') ? { rows: [row], rowCount: 1 } : { rows: [], rowCount: 0 }
+  }
+  const settingsRow = (over: Record<string, unknown> = {}) => ({
+    provider: 'doubao',
+    api_key: 'saved-key',
+    model_id: 'doubao-seed-1-6',
+    updated_at: '2026-10-17T00:00:00.000Z',
+    ...over,
+  })
+
+  it('GET 返回设置（不含 key 明文）', async () => {
+    pgMock.state.responder = (sql, values) => {
+      if (sql.includes('from model_settings')) return { rows: [settingsRow()], rowCount: 1 }
+      if (sql.includes('where id = $1')) return { rows: [adminRow()], rowCount: 1 }
+      return { rows: [], rowCount: 0 }
+    }
+    const { statusCode, json } = await callRoute('GET', '/api/admin/settings/model', undefined, await adminCookie())
+    expect(statusCode).toBe(200)
+    expect(json.settings.provider).toBe('doubao')
+    expect(json.settings.modelId).toBe('doubao-seed-1-6')
+    expect(json.settings.hasApiKey).toBe(true)
+    expect(json.settings).not.toHaveProperty('apiKey')
+    expect(json.settings).not.toHaveProperty('api_key')
+    expect(json.providers).toEqual([{ providerId: 'doubao', displayName: '豆包' }])
+  })
+
+  it('未登录 401，非 admin 403', async () => {
+    pgMock.state.responder = () => ({ rows: [], rowCount: 0 })
+    const noAuth = await callRoute('GET', '/api/admin/settings/model')
+    expect(noAuth.statusCode).toBe(401)
+    pgMock.state.responder = sessionResponder(userRow({ id: '2' }))
+    const nonAdmin = await callRoute('GET', '/api/admin/settings/model', undefined, await userCookie())
+    expect(nonAdmin.statusCode).toBe(403)
+  })
+
+  it('PUT 保存设置；空 key 表示不改动', async () => {
+    let savedValues: unknown[] | undefined
+    pgMock.state.responder = (sql, values) => {
+      if (sql.includes('where id = $1') && !sql.includes('model_settings'))
+        return { rows: [adminRow()], rowCount: 1 }
+      if (sql.includes('from model_settings')) return { rows: [settingsRow()], rowCount: 1 }
+      if (sql.includes('insert into model_settings')) {
+        savedValues = values
+        return { rows: [settingsRow({ model_id: 'new-model' })], rowCount: 1 }
+      }
+      return { rows: [], rowCount: 0 }
+    }
+    const { statusCode, json } = await callRoute(
+      'PUT',
+      '/api/admin/settings/model',
+      { provider: 'doubao', modelId: 'new-model' },
+      await adminCookie(),
+    )
+    expect(statusCode).toBe(200)
+    expect(json.settings.modelId).toBe('new-model')
+    // 空 key → 沿用数据库里的旧 key
+    expect(savedValues?.[1]).toBe('saved-key')
+  })
+
+  it('PUT 非法 provider 返回 400', async () => {
+    pgMock.state.responder = sessionResponder(adminRow())
+    const { statusCode, json } = await callRoute(
+      'PUT',
+      '/api/admin/settings/model',
+      { provider: 'nope', modelId: 'x' },
+      await adminCookie(),
+    )
+    expect(statusCode).toBe(400)
+    expect(json.error).toBe('invalid_provider')
+  })
+})

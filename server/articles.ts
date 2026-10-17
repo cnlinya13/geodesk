@@ -21,6 +21,8 @@ import {
   type ArticleGenerationOptions,
 } from './article-generator.ts'
 import type { DoubaoTimingEvent } from './doubao-client.ts'
+import { resolveModelConfig } from './model-settings-db.ts'
+import { getAdapter, type ModelAdapter } from './model-adapters.ts'
 import { DirectWebsiteReader, type DirectWebsiteReaderOptions } from './content-audit-direct-reader.ts'
 import type { ContentAuditResult } from '../src/content-audit.ts'
 import { isInitialDiagnosisComplete } from '../src/initial-diagnosis-completion.ts'
@@ -53,11 +55,9 @@ export type ArticleTimingEvent = DoubaoTimingEvent & {
   articleId: string | null
 }
 
-function configuration(): { apiKey: string; modelId: string } {
-  return {
-    apiKey: process.env.DOUBAO_API_KEY?.trim() ?? '',
-    modelId: process.env.DOUBAO_MODEL_ID?.trim() ?? '',
-  }
+async function configuration(): Promise<{ apiKey: string; modelId: string; adapter: ModelAdapter }> {
+  const resolved = await resolveModelConfig()
+  return { apiKey: resolved.apiKey, modelId: resolved.modelId, adapter: getAdapter(resolved.provider) }
 }
 
 function latestDiagnosis(detail: ProjectDetail) {
@@ -271,7 +271,7 @@ export async function generateProjectArticles(
   projectId: string,
   options: ArticleServiceOptions = {},
 ): Promise<{ project: ProjectDetail; addedCount: number } | null> {
-  const config = configuration()
+  const config = await configuration()
   const result = await withArticleTitleGenerationLock(projectId, async (client) => {
     const detail = await getProjectDetail(projectId, client)
     if (!detail) return null
@@ -281,6 +281,7 @@ export async function generateProjectArticles(
     const generated = await timedStage('titles', projectId, null, () => generateArticleTitles(input, {
       apiKey: config.apiKey,
       modelId: config.modelId,
+      adapter: config.adapter,
       fetch: options.fetch,
       endpoint: options.endpoint,
       maxContextChars: options.maxContextChars,
@@ -328,7 +329,7 @@ export async function startArticleWriting(
   // content-audit lifecycle.  The row claim remains the concurrency guard.
   const claim = await claimArticleWriting(articleId, options.taskId)
   if (!claim) return null
-  const config = configuration()
+  const config = await configuration()
   try {
     const detail = await getProjectDetail(projectId)
     if (!detail) throw new ArticleServiceError('project_not_found')
@@ -350,6 +351,7 @@ export async function startArticleWriting(
     const bodyOptions = {
       apiKey: config.apiKey,
       modelId: config.modelId,
+      adapter: config.adapter,
       fetch: options.fetch,
       endpoint: options.endpoint,
       maxContextChars: options.maxContextChars,

@@ -175,6 +175,19 @@ export function UserMenu({
               {t('auth.userManagement')}
             </button>
           ) : null}
+          {isAdmin ? (
+            <button
+              type="button"
+              role="menuitem"
+              className="user-menu__item"
+              onClick={() => {
+                setOpen(false)
+                window.location.hash = '#/settings'
+              }}
+            >
+              {t('auth.modelSettings')}
+            </button>
+          ) : null}
           <button type="button" role="menuitem" className="user-menu__item" onClick={handleLogout}>
             {t('auth.logout')}
           </button>

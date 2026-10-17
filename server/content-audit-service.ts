@@ -17,6 +17,8 @@ import type {
   ContentAuditResult,
 } from '../src/content-audit.ts'
 import type { DoubaoFetch, DoubaoTimingEvent } from './doubao-client.ts'
+import { resolveModelConfig } from './model-settings-db.ts'
+import { getAdapter, type ModelAdapter } from './model-adapters.ts'
 
 export class ContentAuditServiceError extends Error {
   executionErrors?: readonly ContentAuditExecutionError[]
@@ -43,10 +45,12 @@ export type ContentAuditServiceOptions = Partial<Omit<ContentAuditRunOptions, 'a
   taskId?: string
 }
 
-function configuration(options: ContentAuditServiceOptions): { apiKey: string; modelId: string } {
+async function configuration(options: ContentAuditServiceOptions): Promise<{ apiKey: string; modelId: string; adapter: ModelAdapter }> {
+  const resolved = await resolveModelConfig()
   return {
-    apiKey: options.apiKey ?? process.env.DOUBAO_API_KEY?.trim() ?? '',
-    modelId: options.modelId ?? process.env.DOUBAO_MODEL_ID?.trim() ?? '',
+    apiKey: options.apiKey ?? resolved.apiKey,
+    modelId: options.modelId ?? resolved.modelId,
+    adapter: getAdapter(resolved.provider),
   }
 }
 
@@ -122,15 +126,16 @@ function safeTimingCallback(injected?: (event: ContentAuditModelTimingEvent) => 
   }
 }
 
-function runnerOptions(
+async function runnerOptions(
   options: ContentAuditServiceOptions,
   onProgress: (progress: ContentAuditProgress, snapshot?: ContentAuditProgressSnapshot) => Promise<void>,
-): Parameters<typeof runContentAudit>[1] {
-  const config = configuration(options)
+): Promise<Parameters<typeof runContentAudit>[1]> {
+  const config = await configuration(options)
   return {
     ...options,
     apiKey: config.apiKey,
     modelId: config.modelId,
+    adapter: config.adapter,
     timeoutMs: options.timeoutMs ?? 0,
     signal: options.signal,
     onProgress,
@@ -147,7 +152,7 @@ async function runClaimedContentAudit(claim: ContentAuditClaim, options: Content
         websiteUrl: claim.project.websiteUrl as string,
         previousResult: claim.previous?.status === 'completed' ? claim.previous.result : null,
       },
-      runnerOptions(options, async (nextProgress, snapshot) => {
+      await runnerOptions(options, async (nextProgress, snapshot) => {
         progress = validProgress(nextProgress, progress)
         // Direct website audits intentionally never persist model/tool
         // snapshots or checkpoints. Only truthful counters are saved while

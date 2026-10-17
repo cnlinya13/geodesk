@@ -1340,3 +1340,37 @@ export async function adminUpdateUser(
   })
   return result.user
 }
+
+/** v0.3.0：模型设置（全局统一，admin 可配）。 */
+export interface ModelProviderInfo {
+  providerId: string
+  displayName: string
+}
+
+export interface ModelSettings {
+  provider: string
+  modelId: string
+  hasApiKey: boolean
+}
+
+/** admin：读取模型设置（不返回 key 明文）。 */
+export async function getModelSettings(): Promise<{ settings: ModelSettings; providers: ModelProviderInfo[] }> {
+  const result = await request<{ ok: true; settings: ModelSettings; providers: ModelProviderInfo[] }>(
+    '/api/admin/settings/model',
+  )
+  return { settings: result.settings, providers: result.providers }
+}
+
+/** admin：保存模型设置（apiKey 为空表示不改动已有 key）。 */
+export async function saveModelSettings(input: {
+  provider: string
+  apiKey?: string
+  modelId: string
+}): Promise<ModelSettings> {
+  const result = await request<{ ok: true; settings: ModelSettings }>('/api/admin/settings/model', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+  return result.settings
+}

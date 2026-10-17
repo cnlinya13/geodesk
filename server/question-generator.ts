@@ -3,9 +3,9 @@ import {
   doubaoResponsesDefaults,
   extractResponseText,
   parseJsonText,
-  requestDoubaoResponses,
   DoubaoResponsesError,
 } from './doubao-client.ts'
+import { getAdapter, type ModelAdapter } from './model-adapters.ts'
 import {
   QUESTION_GROUP_COUNTS,
   QUESTION_TOTAL,
@@ -55,6 +55,8 @@ export type QuestionGenerationProgressCallback = (progress: QuestionGenerationPr
 export type QuestionGenerationOptions = {
   apiKey: string
   modelId: string
+  /** v0.3.0：可替换模型适配器；缺省为豆包。 */
+  adapter?: ModelAdapter
   fetch?: typeof fetch
   endpoint?: string
   timeoutMs?: number
@@ -497,22 +499,17 @@ export async function generateQuestions(input: QuestionGenerationInput, options:
     seen: new Set(lockedQuestions.map((question) => normalizedQuestionKey(question.question))),
     counts: { recommendation: 0, selection: 0, decision: 0 },
   }
-  let payload: unknown
+  let result: { text: string | null; raw: unknown }
   try {
-    payload = await requestDoubaoResponses({
+    result = await (options.adapter ?? getAdapter('doubao')).generate({
       apiKey: options.apiKey,
       modelId: options.modelId,
-      input: prompt,
+      prompt,
       // Website-only generation may contain a task-scoped temporary page.
       // There is no previous-response dependency, so do not ask the provider
       // to retain this request or its prompt in provider-side history.
-      store: false,
-      textFormat: {
-        type: 'json_schema',
-        name: 'geo_questions',
-        strict: true,
-        schema: getJsonSchema(remainingCounts),
-      },
+      stateless: true,
+      jsonSchema: { name: 'geo_questions', schema: getJsonSchema(remainingCounts) },
       fetch: options.fetch,
       endpoint: options.endpoint,
       timeoutMs: options.timeoutMs,
@@ -527,7 +524,8 @@ export async function generateQuestions(input: QuestionGenerationInput, options:
     if (error instanceof DoubaoResponsesError) throw new QuestionGenerationError(error.message)
     throw new QuestionGenerationError('豆包问题生成请求失败')
   }
-  const responseText = extractResponseText(payload)
+  const payload = result.raw
+  const responseText = result.text ?? extractResponseText(payload)
   if (!responseText) throw new QuestionGenerationError('豆包没有返回问题内容')
   try {
     const validated = validateQuestions(parseJsonText(responseText), input)

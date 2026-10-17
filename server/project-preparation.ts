@@ -13,6 +13,8 @@ import {
   QUESTION_SOURCE_INSUFFICIENT_MESSAGE,
   type QuestionGenerationProgress,
 } from './question-generator.ts'
+import { resolveModelConfig } from './model-settings-db.ts'
+import { getAdapter, type ModelAdapter } from './model-adapters.ts'
 import { SafeAuditHttpClient, TechnicalAuditHttpError, type PublicAddress, type SafeHttpResponse, type SafeRequestTransport } from './technical-audit-http.ts'
 import { evaluateRobots, isRobotsText, parseRobots } from './technical-audit-robots.ts'
 import { analyzeAnonymousPage } from './technical-audit-login.ts'
@@ -29,11 +31,9 @@ export type GenerateProjectQuestionsOptions = {
   websiteFetch?: typeof fetch
 }
 
-function configuration(): { apiKey: string; modelId: string } {
-  return {
-    apiKey: process.env.DOUBAO_API_KEY?.trim() ?? '',
-    modelId: process.env.DOUBAO_MODEL_ID?.trim() ?? '',
-  }
+async function configuration(): Promise<{ apiKey: string; modelId: string; adapter: ModelAdapter }> {
+  const resolved = await resolveModelConfig()
+  return { apiKey: resolved.apiKey, modelId: resolved.modelId, adapter: getAdapter(resolved.provider) }
 }
 
 const TEMPORARY_READ_MAX_RESPONSE_BYTES = 1_000_000
@@ -322,7 +322,7 @@ export async function generateProjectQuestions(
     const questions = await generateQuestions(
       projectQuestionInput(preparation.project, pages, lockedQuestions),
       {
-        ...configuration(),
+        ...(await configuration()),
         timeoutMs: 0,
         signal: options.signal,
         ...(options.stream || options.onProgress

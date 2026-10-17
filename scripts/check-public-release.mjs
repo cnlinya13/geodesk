@@ -14,6 +14,10 @@ const allowedPlaceholderValues = new Set([
   'api-secret', 'another-secret', 'statement-secret', 'read-api-secret',
   // Test-only passwords used by auth route tests (no real accounts).
   'testpass123', 'AnotherPass123', 'LockedPass123', 'wrongpass1', 'wrongpass2',
+  // Test fixture key for model settings tests (no real accounts).
+  'saved-key',
+  // JS keyword: never a credential (ternary `... ? x : undefined`).
+  'undefined',
 ])
 
 const fragment = (...parts) => parts.join('')
@@ -34,7 +38,7 @@ const credentialPatterns = [
     name: 'credential-assignment',
     // Only inspect quoted literals or simple token-like values. References
     // such as options.apiKey and process.env.PGPASSWORD are not credentials.
-    pattern: /\b(?:api[_ -]?key|access[_ -]?token|secret|password)\s*[:=]\s*(?:"([^"]{8,})"|'([^']{8,})'|([A-Za-z0-9_+\/-]{8,}))/i,
+    pattern: /\b(?:api[_ -]?key|access[_ -]?token|secret|password)\s*[:=]\s*(?:"([^"]{8,})"|'([^']{8,})'|([A-Za-z0-9_+\/-]{8,})(?!\.))/i,
   },
 ]
 const packageLockRules = [

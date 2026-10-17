@@ -3,10 +3,10 @@ import {
   extractResponseModel,
   extractResponseText,
   parseJsonText,
-  requestDoubaoResponses,
   DoubaoResponsesError,
   type DoubaoFetch,
 } from './doubao-client.ts'
+import { getAdapter, type ModelAdapter } from './model-adapters.ts'
 import {
   QUESTION_POSITION_MAX,
   QUESTION_POSITION_MIN,
@@ -72,6 +72,8 @@ export type DiagnosisCoreOptions = {
   answers: DiagnosisAnswerState[]
   apiKey: string
   modelId: string
+  /** v0.3.0：可替换模型适配器；缺省为豆包。 */
+  adapter?: ModelAdapter
   rawFetch?: DoubaoFetch
   analysisFetch?: DoubaoFetch
   endpoint?: string
@@ -316,24 +318,25 @@ export async function runDiagnosisCore(options: DiagnosisCoreOptions): Promise<D
     let success: DiagnosisAnswerState | null = null
     let providerError: unknown = null
     try {
-      const payload = await requestDoubaoResponses({
+      const answerResult = await (options.adapter ?? getAdapter('doubao')).generate({
         apiKey: options.apiKey,
         modelId: options.modelId,
-        input: question.question,
+        prompt: question.question,
         tools: RAW_TOOLS,
         fetch: options.rawFetch,
         endpoint: options.endpoint,
         timeoutMs: options.timeoutMs,
         signal: options.signal,
       })
-      const answerText = extractResponseText(payload)
+      const payload = answerResult.raw
+      const answerText = answerResult.text
       if (!answerText) throw new DiagnosisCoreError('豆包没有返回有效回答')
       success = {
         ...running,
         status: 'success',
         answerText,
-        citationUrls: extractCitationUrls(payload),
-        responseModel: extractResponseModel(payload),
+        citationUrls: answerResult.citationUrls,
+        responseModel: answerResult.responseModel,
         completedAt: nowIso(),
       }
     } catch (error) {
@@ -390,17 +393,18 @@ export async function runDiagnosisCore(options: DiagnosisCoreOptions): Promise<D
 
   try {
     await options.onAnalysisStart?.()
-    const payload = await requestDoubaoResponses({
+    const analysisResult = await (options.adapter ?? getAdapter('doubao')).generate({
       apiKey: options.apiKey,
       modelId: options.modelId,
-      input: buildAnalysisInput(options.project, answers),
-      textFormat: analysisFormat(),
+      prompt: buildAnalysisInput(options.project, answers),
+      jsonSchema: { name: 'geo_diagnosis_recommendations', schema: analysisFormat().schema as Record<string, unknown> },
       fetch: options.analysisFetch ?? options.rawFetch,
       endpoint: options.endpoint,
       timeoutMs: options.timeoutMs,
       signal: options.signal,
     })
-    const text = extractResponseText(payload)
+    const payload = analysisResult.raw
+    const text = analysisResult.text
     if (!text) throw new DiagnosisCoreError('豆包没有返回诊断汇总')
     const recommendations = parseRecommendations(text)
     const enriched = answers.map((answer) => ({
@@ -415,7 +419,7 @@ export async function runDiagnosisCore(options: DiagnosisCoreOptions): Promise<D
       summary: {
         status: 'completed',
         analysis: parseJsonText(text),
-        model: extractResponseModel(payload),
+        model: analysisResult.responseModel,
         error: null,
         recommendationRate: rate(recommendedCount, QUESTION_TOTAL),
         officialCitationRate: options.project.websiteUrl ? rate(officialAnswers, QUESTION_TOTAL) : null,
