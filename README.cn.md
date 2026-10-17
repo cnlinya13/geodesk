@@ -48,6 +48,22 @@ npm run demo
 
 在终端按 `Ctrl+C` 停止演示。
 
+### 一键部署到服务器
+
+把合成演示放到公网给别人体验（无数据库、无模型 Key、免登录）：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/cnlinya13/geodesk/main/deploy.sh | sudo bash
+```
+
+然后打开 `http://<服务器公网IP>`。指定版本或绑定域名（自动配 HTTPS）：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/cnlinya13/geodesk/main/deploy.sh | sudo bash -s v0.3.2 demo.example.com
+```
+
+全部选项见 `deploy.sh`（`--help`）。重复执行即更新到指定版本。
+
 ## 真实运行：独立数据库与豆包配置
 
 ### 1. 安装与配置
