@@ -667,3 +667,47 @@ describe('v0.2.3 用户账号前端接口', () => {
     expect(JSON.parse(String(captured?.init?.body))).toEqual({ username: 'bob', password: 'testpass123', role: 'user' })
   })
 })
+
+describe('v0.2.4 改密与管理接口', () => {
+  const testUser = {
+    id: '2',
+    username: 'bob',
+    displayName: 'Bob',
+    role: 'user' as const,
+    isActive: true,
+    mustChangePassword: false,
+    createdAt: '2026-10-17T00:00:00.000Z',
+    updatedAt: '2026-10-17T00:00:00.000Z',
+  }
+
+  it('changePassword 提交旧密码与新密码', async () => {
+    let captured: { input: RequestInfo | URL; init?: RequestInit } | undefined
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      captured = { input, init }
+      return Response.json({ ok: true, user: testUser })
+    }))
+    const { changePassword } = await import('./api')
+    expect(await changePassword('testpass123', 'AnotherPass123')).toEqual(testUser)
+    expect(captured?.input).toBe('/api/auth/password/change')
+    expect(JSON.parse(String(captured?.init?.body))).toEqual({ oldPassword: 'testpass123', newPassword: 'AnotherPass123' })
+  })
+
+  it('adminListUsers 返回用户列表', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ ok: true, users: [testUser] })))
+    const { adminListUsers } = await import('./api')
+    expect(await adminListUsers()).toEqual([testUser])
+  })
+
+  it('adminResetPassword 与 adminUpdateUser 走对应接口', async () => {
+    const seen: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      seen.push(`${init?.method} ${String(input)}`)
+      return Response.json({ ok: true, user: testUser })
+    }))
+    const { adminResetPassword, adminUpdateUser } = await import('./api')
+    await adminResetPassword('2', 'AnotherPass123')
+    await adminUpdateUser('2', { isActive: false })
+    expect(seen).toContain('POST /api/admin/users/2/password/reset')
+    expect(seen).toContain('PATCH /api/admin/users/2')
+  })
+})

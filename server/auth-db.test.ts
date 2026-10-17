@@ -108,3 +108,40 @@ describe('bumpUserTokenVersion', () => {
     expect(values).toEqual(['7'])
   })
 })
+
+describe('v0.2.4 新增持久层', () => {
+  it('setUserPassword 更新哈希并使旧会话失效', async () => {
+    const { setUserPassword } = await import('./auth-db.ts')
+    pgMock.state.responder = () => ({ rows: [], rowCount: 1 })
+    await setUserPassword('7', 'scrypt$new', true)
+    const q = pgMock.state.queries[0]
+    expect(q.values?.[0]).toBe('7')
+    expect(q.values?.[1]).toBe('scrypt$new')
+    expect(q.values?.[2]).toBe(true)
+    expect(q.sql).toContain('token_version = token_version + 1')
+  })
+
+  it('listUsers 返回对外形态', async () => {
+    const { listUsers } = await import('./auth-db.ts')
+    pgMock.state.responder = () => ({ rows: [sampleRow], rowCount: 1 })
+    const users = await listUsers()
+    expect(users).toHaveLength(1)
+    expect(users[0]).not.toHaveProperty('passwordHash')
+    expect(users[0]).not.toHaveProperty('password_hash')
+    expect(users[0].mustChangePassword).toBe(false)
+  })
+
+  it('updateUser 停用时 token_version +1', async () => {
+    const { updateUser } = await import('./auth-db.ts')
+    pgMock.state.responder = () => ({ rows: [{ ...sampleRow, is_active: false }], rowCount: 1 })
+    const updated = await updateUser('7', { isActive: false })
+    expect(updated?.isActive).toBe(false)
+    expect(pgMock.state.queries[0].sql).toContain('token_version = token_version + 1')
+  })
+
+  it('updateUser 不存在返回 null', async () => {
+    const { updateUser } = await import('./auth-db.ts')
+    pgMock.state.responder = () => ({ rows: [], rowCount: 0 })
+    expect(await updateUser('99', { role: 'admin' })).toBeNull()
+  })
+})

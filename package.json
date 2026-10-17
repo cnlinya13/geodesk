@@ -18,7 +18,8 @@
     "migrate:db": "tsx scripts/migrate-db.ts",
     "demo": "concurrently --kill-others-on-fail --names demo-api,demo-web \"tsx scripts/demo-server.ts\" \"vite --config vite.demo.config.ts\"",
     "smoke:demo": "node scripts/smoke-demo.mjs",
-    "check:public": "node scripts/check-public-release.mjs"
+    "check:public": "node scripts/check-public-release.mjs",
+    "admin:reset-password": "tsx scripts/reset-admin-password.ts"
   },
   "dependencies": {
     "@fontsource/noto-sans-sc": "^5.3.0",

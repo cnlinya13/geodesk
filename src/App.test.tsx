@@ -2658,9 +2658,10 @@ describe('v0.2.3 登录门禁与用户菜单', () => {
       <UserMenu
         user={{
           id: '1', username: 'alice', displayName: 'Alice', role: 'admin',
-          isActive: true, createdAt: '', updatedAt: '',
+          isActive: true, mustChangePassword: false, createdAt: '', updatedAt: '',
         }}
         onLogout={() => undefined}
+        onUserChanged={() => undefined}
       />,
     )
     expect(html).toContain('Alice')
@@ -2670,5 +2671,20 @@ describe('v0.2.3 登录门禁与用户菜单', () => {
   it('登录页与用户菜单有对应样式', () => {
     expect(cssRulesForClass(appCss, 'login-page').length).toBeGreaterThan(0)
     expect(cssRulesForClass(appCss, 'user-menu__popover').length).toBeGreaterThan(0)
+  })
+})
+
+describe('v0.2.4 强制改密', () => {
+  it('App 在 mustChangePassword 时渲染强制改密页（源码门禁）', () => {
+    expect(appSource).toContain('currentUser?.mustChangePassword')
+    expect(appSource).toContain('<ForceChangePasswordPage onChanged={setCurrentUser} />')
+  })
+
+  it('强制改密页渲染旧密码/新密码输入', async () => {
+    const { ForceChangePasswordPage } = await import('./components/Auth')
+    const html = renderToStaticMarkup(<ForceChangePasswordPage onChanged={() => undefined} />)
+    expect(html).toContain('pw-old')
+    expect(html).toContain('pw-new')
+    expect(html).toContain('pw-confirm')
   })
 })

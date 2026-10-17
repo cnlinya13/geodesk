@@ -4355,3 +4355,50 @@ textarea:focus-visible,
   cursor: default;
   opacity: 0.45;
 }
+
+/* v0.2.4 用户管理 */
+.modal--wide {
+  max-width: 720px;
+}
+
+.users-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.users-table th,
+.users-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+}
+
+.users-table th {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.users-table__actions {
+  white-space: nowrap;
+  text-align: right;
+}
+
+.link-button {
+  padding: 4px 8px;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  color: var(--blue);
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.link-button:hover:not(:disabled) {
+  background: var(--list-hover);
+}
+
+.link-button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}

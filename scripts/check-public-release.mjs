@@ -96,8 +96,10 @@ async function walk(directory) {
     for (let index = 0; index < lines.length; index += 1) {
       const lineNumber = index + 1
       const line = lines[index] ?? ''
+      // /api/admin/users 是接口路径，不是 macOS 个人目录，特例放行（用 fragment 避免本行被 pattern 命中）
+      const isAdminUsersApiPath = new RegExp(fragment('/', 'api', '/', 'admin', '/', 'users'), 'i').test(line)
       for (const pattern of forbiddenPersonalPathPatterns) {
-        if (!isLicenseFile && pattern.test(line)) add(file, lineNumber, 'personal-or-internal-path')
+        if (!isLicenseFile && !isAdminUsersApiPath && pattern.test(line)) add(file, lineNumber, 'personal-or-internal-path')
       }
       for (const rule of credentialPatterns) {
         const match = line.match(rule.pattern)

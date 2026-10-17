@@ -312,3 +312,168 @@ describe('GET /api/auth/session + POST /api/auth/logout', () => {
     expect(session.json.error).toBe('auth_required')
   })
 })
+
+describe('v0.2.4 改密与 admin 接口', () => {
+  const adminRow = () =>
+    userRow({ id: '1', username: 'root', role: 'admin', password_hash: 'x', token_version: 0 })
+  async function adminCookie(): Promise<string> {
+    return `geodesk_session=${await issueSessionToken({ userId: '1', tokenVersion: 0 })}`
+  }
+  async function userCookie(): Promise<string> {
+    return `geodesk_session=${await issueSessionToken({ userId: '2', tokenVersion: 0 })}`
+  }
+  function sessionResponder(row: Record<string, unknown>) {
+    return (sql: string) =>
+      sql.includes('where id = $1') ? { rows: [row], rowCount: 1 } : { rows: [], rowCount: 0 }
+  }
+
+  describe('POST /api/auth/password/change', () => {
+    it('旧密码正确时改密成功并换发会话', async () => {
+      const stored = userRow({ id: '2', password_hash: await hashPassword('testpass123'), token_version: 0 })
+      const rotated = userRow({ id: '2', password_hash: await hashPassword('testpass123'), token_version: 1 })
+      let calls = 0
+      pgMock.state.responder = (sql) => {
+        if (sql.includes('where id = $1')) {
+          calls += 1
+          return { rows: [calls === 1 ? stored : rotated], rowCount: 1 }
+        }
+        if (sql.startsWith('update geo_users set password_hash')) return { rows: [], rowCount: 1 }
+        return { rows: [], rowCount: 0 }
+      }
+      const { statusCode, json, headers } = await callRoute(
+        'POST',
+        '/api/auth/password/change',
+        { oldPassword: 'testpass123', newPassword: 'AnotherPass123' },
+        await userCookie(),
+      )
+      expect(statusCode).toBe(200)
+      expect(json.ok).toBe(true)
+      expect(json.user.mustChangePassword).toBe(false)
+      expect(String(headers['set-cookie'] ?? '')).toContain('geodesk_session=')
+    })
+
+    it('旧密码错误返回 400', async () => {
+      const stored = userRow({ id: '2', password_hash: await hashPassword('testpass123') })
+      pgMock.state.responder = sessionResponder(stored)
+      const { statusCode, json } = await callRoute(
+        'POST',
+        '/api/auth/password/change',
+        { oldPassword: 'wrongpass1', newPassword: 'AnotherPass123' },
+        await userCookie(),
+      )
+      expect(statusCode).toBe(400)
+      expect(json.error).toBe('wrong_password')
+    })
+
+    it('未登录返回 401', async () => {
+      pgMock.state.responder = () => ({ rows: [], rowCount: 0 })
+      const { statusCode } = await callRoute('POST', '/api/auth/password/change', {
+        oldPassword: 'testpass123',
+        newPassword: 'AnotherPass123',
+      })
+      expect(statusCode).toBe(401)
+    })
+  })
+
+  describe('GET /api/admin/users', () => {
+    it('admin 可列出用户', async () => {
+      pgMock.state.responder = (sql) => {
+        if (sql.includes('where id = $1')) return { rows: [adminRow()], rowCount: 1 }
+        if (sql.startsWith('select')) return { rows: [adminRow(), userRow({ id: '2' })], rowCount: 2 }
+        return { rows: [], rowCount: 0 }
+      }
+      const { statusCode, json } = await callRoute('GET', '/api/admin/users', undefined, await adminCookie())
+      expect(statusCode).toBe(200)
+      expect(json.users).toHaveLength(2)
+      expect(json.users[0]).not.toHaveProperty('passwordHash')
+    })
+
+    it('非 admin 返回 403', async () => {
+      pgMock.state.responder = sessionResponder(userRow({ id: '2', role: 'user' }))
+      const { statusCode, json } = await callRoute('GET', '/api/admin/users', undefined, await userCookie())
+      expect(statusCode).toBe(403)
+      expect(json.error).toBe('forbidden')
+    })
+  })
+
+  describe('POST /api/admin/users/:id/password/reset', () => {
+    it('admin 重置成功（临时密码，强制改密）', async () => {
+      let updatedValues: unknown[] | undefined
+      pgMock.state.responder = (sql, values) => {
+        if (sql.includes('set password_hash')) {
+          updatedValues = values
+          return { rows: [], rowCount: 1 }
+        }
+        if (sql.includes('where id = $1')) {
+          const id = String(values?.[0])
+          if (id === '1') return { rows: [adminRow()], rowCount: 1 }
+          if (id === '2') return { rows: [userRow({ id: '2' })], rowCount: 1 }
+          return { rows: [], rowCount: 0 }
+        }
+        return { rows: [], rowCount: 0 }
+      }
+      const { statusCode, json } = await callRoute(
+        'POST',
+        '/api/admin/users/2/password/reset',
+        { newPassword: 'AnotherPass123' },
+        await adminCookie(),
+      )
+      expect(statusCode).toBe(200)
+      expect(json.ok).toBe(true)
+      expect(updatedValues?.[2]).toBe(true) // must_change_password=true
+    })
+
+    it('用户不存在返回 404', async () => {
+      pgMock.state.responder = (sql, values) => {
+        if (sql.includes('where id = $1')) {
+          return String(values?.[0]) === '1'
+            ? { rows: [adminRow()], rowCount: 1 }
+            : { rows: [], rowCount: 0 }
+        }
+        return { rows: [], rowCount: 0 }
+      }
+      const { statusCode, json } = await callRoute(
+        'POST',
+        '/api/admin/users/99/password/reset',
+        { newPassword: 'AnotherPass123' },
+        await adminCookie(),
+      )
+      expect(statusCode).toBe(404)
+      expect(json.error).toBe('user_not_found')
+    })
+  })
+
+  describe('PATCH /api/admin/users/:id', () => {
+    it('admin 可停用用户', async () => {
+      const deactivated = userRow({ id: '2', is_active: false, token_version: 1 })
+      pgMock.state.responder = (sql, values) => {
+        if (sql.includes('update geo_users set')) {
+          expect(String(values?.[0])).toBe('2')
+          return { rows: [deactivated], rowCount: 1 }
+        }
+        if (sql.includes('where id = $1')) return { rows: [adminRow()], rowCount: 1 }
+        return { rows: [], rowCount: 0 }
+      }
+      const { statusCode, json } = await callRoute(
+        'PATCH',
+        '/api/admin/users/2',
+        { isActive: false },
+        await adminCookie(),
+      )
+      expect(statusCode).toBe(200)
+      expect(json.user.isActive).toBe(false)
+    })
+
+    it('不能停用自己', async () => {
+      pgMock.state.responder = sessionResponder(adminRow())
+      const { statusCode, json } = await callRoute(
+        'PATCH',
+        '/api/admin/users/1',
+        { isActive: false },
+        await adminCookie(),
+      )
+      expect(statusCode).toBe(403)
+      expect(json.error).toBe('forbidden')
+    })
+  })
+})

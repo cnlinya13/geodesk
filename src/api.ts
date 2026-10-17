@@ -1259,6 +1259,7 @@ export interface CurrentUser {
   displayName: string
   role: 'admin' | 'user'
   isActive: boolean
+  mustChangePassword: boolean
   createdAt: string
   updatedAt: string
 }
@@ -1298,6 +1299,44 @@ export async function createAccount(input: {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
+  })
+  return result.user
+}
+
+/** 登录用户凭旧密码修改自己的密码。 */
+export async function changePassword(oldPassword: string, newPassword: string): Promise<CurrentUser> {
+  const result = await request<{ ok: true; user: CurrentUser }>('/api/auth/password/change', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ oldPassword, newPassword }),
+  })
+  return result.user
+}
+
+/** admin：用户列表。 */
+export async function adminListUsers(): Promise<CurrentUser[]> {
+  const result = await request<{ ok: true; users: CurrentUser[] }>('/api/admin/users')
+  return result.users
+}
+
+/** admin：重置指定用户密码（临时密码，下次登录强制改密）。 */
+export async function adminResetPassword(id: string, newPassword: string): Promise<void> {
+  await request<{ ok: true }>(`/api/admin/users/${encodeURIComponent(id)}/password/reset`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ newPassword }),
+  })
+}
+
+/** admin：更新用户（显示名/角色/停用）。 */
+export async function adminUpdateUser(
+  id: string,
+  patch: { displayName?: string; role?: 'admin' | 'user'; isActive?: boolean },
+): Promise<CurrentUser> {
+  const result = await request<{ ok: true; user: CurrentUser }>(`/api/admin/users/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
   })
   return result.user
 }

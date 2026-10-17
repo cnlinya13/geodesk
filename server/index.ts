@@ -66,9 +66,13 @@ import {
 } from './auth.ts'
 import {
   createUser,
+  findUserById,
   findUserByUsername,
   findUserRowById,
+  listUsers,
   publicUserFromRow,
+  setUserPassword,
+  updateUser,
   type PublicUser,
 } from './auth-db.ts'
 
@@ -130,6 +134,29 @@ function isAuthOpenRoute(method: string, pathname: string): boolean {
     (method === 'POST' && (pathname === '/api/auth/login' || pathname === '/api/auth/logout')) ||
     (method === 'GET' && (pathname === '/api/auth/session' || pathname === '/api/health/database'))
   )
+}
+
+/** v0.2.4：admin 接口守卫。未登录 401，非 admin 403。 */
+function requireAdmin(request: IncomingMessage, response: ServerResponse): PublicUser | null {
+  const me = (request as { authUser?: PublicUser }).authUser ?? null
+  if (!me) {
+    sendError(response, 401, 'auth_required', '请先登录')
+    return null
+  }
+  if (me.role !== 'admin') {
+    sendError(response, 403, 'forbidden', '仅管理员可操作')
+    return null
+  }
+  return me
+}
+
+/** v0.2.4：解析 /api/admin/users/:id[/password/reset]。 */
+function adminUserPathFromPath(pathname: string): { id: string; action: 'reset' | 'update' } | null {
+  const resetMatch = pathname.match(/^\/api\/admin\/users\/(\d+)\/password\/reset$/)
+  if (resetMatch?.[1]) return { id: resetMatch[1], action: 'reset' }
+  const updateMatch = pathname.match(/^\/api\/admin\/users\/(\d+)$/)
+  if (updateMatch?.[1]) return { id: updateMatch[1], action: 'update' }
+  return null
 }
 
 /**
@@ -960,6 +987,130 @@ export async function handleRequest(request: IncomingMessage, response: ServerRe
     }
     sendJson(response, 200, { ok: true, user: me })
     return
+  }
+
+  // ---- v0.2.4 用户改密：凭旧密码修改；成功后换发新会话 token ----
+  if (request.method === 'POST' && pathname === '/api/auth/password/change') {
+    const me = (request as { authUser?: PublicUser }).authUser
+    if (!me) {
+      sendError(response, 401, 'auth_required', '请先登录')
+      return
+    }
+    let body: ProjectBody
+    try {
+      body = await readBody(request)
+    } catch {
+      sendError(response, 400, 'invalid_request', '请求格式不正确')
+      return
+    }
+    const { oldPassword, newPassword } = body as { oldPassword?: unknown; newPassword?: unknown }
+    const newPlain = validatePassword(newPassword)
+    if (typeof oldPassword !== 'string' || !newPlain) {
+      sendError(response, 400, 'password_too_short', '新密码至少 8 位')
+      return
+    }
+    try {
+      const row = await findUserRowById(me.id)
+      if (!row || !(await verifyPassword(oldPassword, row.passwordHash))) {
+        sendError(response, 400, 'wrong_password', '旧密码不正确')
+        return
+      }
+      await setUserPassword(me.id, await hashPassword(newPlain), false)
+      const updated = await findUserRowById(me.id)
+      if (!updated) {
+        sendError(response, 404, 'user_not_found', '用户不存在')
+        return
+      }
+      // token_version 已 +1，旧 token 失效；给当前会话换发新 token，免得改完即被登出
+      const token = await issueSessionToken({ userId: updated.id, tokenVersion: updated.tokenVersion })
+      response.setHeader('Set-Cookie', buildSessionSetCookie(token))
+      sendJson(response, 200, { ok: true, user: publicUserFromRow(updated) })
+    } catch {
+      console.error('[api] 修改密码失败')
+      sendError(response, 503, 'database_unavailable', '修改密码暂时无法完成，请稍后重试')
+    }
+    return
+  }
+
+  // ---- v0.2.4 admin 接口：用户列表 ----
+  if (request.method === 'GET' && pathname === '/api/admin/users') {
+    if (!requireAdmin(request, response)) return
+    try {
+      sendJson(response, 200, { ok: true, users: await listUsers() })
+    } catch {
+      console.error('[api] 用户列表读取失败')
+      sendError(response, 503, 'database_unavailable', '用户列表暂时无法读取，请稍后重试')
+    }
+    return
+  }
+
+  // ---- v0.2.4 admin 接口：重置密码 / 更新用户 ----
+  const adminUserPath = adminUserPathFromPath(pathname)
+  if (adminUserPath) {
+    const me = requireAdmin(request, response)
+    if (!me) return
+    if (request.method === 'POST' && adminUserPath.action === 'reset') {
+      let body: ProjectBody
+      try {
+        body = await readBody(request)
+      } catch {
+        sendError(response, 400, 'invalid_request', '请求格式不正确')
+        return
+      }
+      const newPlain = validatePassword((body as { newPassword?: unknown }).newPassword)
+      if (!newPlain) {
+        sendError(response, 400, 'password_too_short', '新密码至少 8 位')
+        return
+      }
+      try {
+        const target = await findUserById(adminUserPath.id)
+        if (!target) {
+          sendError(response, 404, 'user_not_found', '用户不存在')
+          return
+        }
+        // 临时密码：下次登录强制改密；token_version +1 使其旧会话即时失效
+        await setUserPassword(adminUserPath.id, await hashPassword(newPlain), true)
+        sendJson(response, 200, { ok: true })
+      } catch {
+        console.error('[api] 重置密码失败')
+        sendError(response, 503, 'database_unavailable', '重置密码暂时无法完成，请稍后重试')
+      }
+      return
+    }
+    if (request.method === 'PATCH' && adminUserPath.action === 'update') {
+      let body: ProjectBody
+      try {
+        body = await readBody(request)
+      } catch {
+        sendError(response, 400, 'invalid_request', '请求格式不正确')
+        return
+      }
+      const patch = body as { displayName?: unknown; role?: unknown; isActive?: unknown }
+      const displayName =
+        patch.displayName === undefined ? undefined : normalizeDisplayName(patch.displayName, '')
+      const role = patch.role === undefined ? undefined : patch.role === 'admin' ? 'admin' : patch.role === 'user' ? 'user' : null
+      const isActive = patch.isActive === undefined ? undefined : patch.isActive === true
+      if (displayName === null || role === null) {
+        sendError(response, 400, 'invalid_request', '请求格式不正确')
+        return
+      }
+      if (adminUserPath.id === me.id && (role !== undefined || isActive !== undefined)) {
+        sendError(response, 403, 'forbidden', '不能修改自己的角色或停用自己')
+        return
+      }
+      try {
+        const updated = await updateUser(adminUserPath.id, { displayName, role, isActive })
+        if (!updated) {
+          sendError(response, 404, 'user_not_found', '用户不存在')
+          return
+        }
+        sendJson(response, 200, { ok: true, user: updated })
+      } catch {
+        console.error('[api] 更新用户失败')
+        sendError(response, 503, 'database_unavailable', '更新用户暂时无法完成，请稍后重试')
+      }
+      return
+    }
   }
 
   if (request.method === 'GET' && pathname === '/api/projects') {

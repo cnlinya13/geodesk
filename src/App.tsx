@@ -34,7 +34,7 @@ import {
   type QuestionGenerationProgress,
 } from './api'
 import { copyArticleContent } from './article-copy'
-import { LoginPage, UserMenu } from './components/Auth'
+import { ForceChangePasswordPage, LoginPage, UserMenu } from './components/Auth'
 import { Button, Field, GlobalHeader, Icon, IconButton, MetricCard, Modal, OperationBar, OperationFeedback, PhaseNav, stages, StatusBadge } from './components/UI'
 import { TechnicalAuditPanel } from './components/TechnicalAuditPanel'
 import { ContentAuditPanel } from './components/ContentAuditPanel'
@@ -3794,6 +3794,15 @@ export default function App() {
     )
   }
 
+  // v0.2.4 强制改密：admin 重置后的临时密码，下次登录必须先改（不可跳过）
+  if (currentUser?.mustChangePassword) {
+    return (
+      <div className="app">
+        <ForceChangePasswordPage onChanged={setCurrentUser} />
+      </div>
+    )
+  }
+
   return (
     <div className="app">
       {route.kind !== 'report' ? <GlobalHeader
@@ -3801,7 +3810,7 @@ export default function App() {
         onHome={handleHome}
         onEdit={route.kind === 'project' && selectedProject ? () => openEdit() : undefined}
         editLabel={selectedProject?.questionsLockedAt && !selectedProject.websiteUrl ? t('header.addWebsite') : t('header.editProject')}
-        userMenu={currentUser ? <UserMenu user={currentUser} onLogout={() => setCurrentUser(null)} /> : undefined}
+        userMenu={currentUser ? <UserMenu user={currentUser} onLogout={() => setCurrentUser(null)} onUserChanged={setCurrentUser} /> : undefined}
       /> : null}
       {content}
       {modalOpen ? <ProjectFormModal project={modalProject ?? null} initialValues={modalInitialValues} onClose={closeModal} onSaved={handleSaved} onDeleted={handleDeleted} /> : null}
