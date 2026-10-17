@@ -17,6 +17,22 @@ const PORT = 8788
 const SYNTHETIC_MODEL = 'synthetic-demo-model'
 const SYNTHETIC_SITE = 'https://demo.example.invalid'
 
+/**
+ * v0.3.1 公开演示免登录：演示会话用户。
+ * 形态与真实模式的 CurrentUser 对齐（永不含密码哈希）；
+ * role 取 user，演示站不展示 admin 专属的用户管理入口。
+ */
+const DEMO_USER = {
+  id: 'demo-user',
+  username: 'demo',
+  displayName: '演示用户',
+  role: 'user' as const,
+  isActive: true,
+  mustChangePassword: false,
+  createdAt: new Date().toISOString(),
+  updatedAt: new Date().toISOString(),
+}
+
 type DemoQuestion = {
   id: string
   position: number
@@ -465,6 +481,25 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
   }
   if (pathname === '/api/demo/status' && method === 'GET') {
     sendJson(response, 200, { ok: true, mode: 'synthetic', externalRequests: false, resetOnRestart: true })
+    return
+  }
+  // v0.3.1 公开演示免登录：demo server 提供演示会话，真实模式的账号体系不受影响。
+  if (pathname === '/api/auth/session' && method === 'GET') {
+    sendJson(response, 200, { ok: true, user: DEMO_USER })
+    return
+  }
+  if (pathname === '/api/auth/login' && method === 'POST') {
+    await readJson(request).catch(() => ({}))
+    sendJson(response, 200, { ok: true, user: DEMO_USER })
+    return
+  }
+  if (pathname === '/api/auth/logout' && method === 'POST') {
+    sendJson(response, 200, { ok: true })
+    return
+  }
+  if (pathname === '/api/auth/password/change' && method === 'POST') {
+    await readJson(request).catch(() => ({}))
+    sendJson(response, 200, { ok: true, user: DEMO_USER })
     return
   }
   if (pathname === '/api/projects' && method === 'GET') {

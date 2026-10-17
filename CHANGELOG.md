@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.3.1 - 2026-10-17
+
+- 公开演示免登录：demo server 新增演示会话接口（`GET /api/auth/session`、`POST /api/auth/login`、`POST /api/auth/logout` 返回演示用户，改密接口打桩通过），演示站开箱即用，不再卡在登录页；真实模式的账号体系不受影响。
+
 ## 0.3.0 - 2026-10-17
 
 - v0.3.0 可替换模型适配器 + 模型设置页：`ModelAdapter` 接口（豆包为首个实现，一家一家单独接）；021 迁移建 model_settings 表；`GET/PUT /api/admin/settings/model`（admin-only，GET 不返回 key 明文）；设置页全局统一选模型（provider 下拉 + API Key + 模型 ID）；`resolveModelConfig()` 数据库优先、环境变量兜底；6 个业务模块改走 adapter。
