@@ -335,11 +335,13 @@ export const PhaseNav = memo(function PhaseNav({ active, states, onSelect, disab
   )
 })
 
-export function GlobalHeader({ projectName, onHome, onEdit, editLabel }: {
+export function GlobalHeader({ projectName, onHome, onEdit, editLabel, userMenu }: {
   projectName?: string
   onHome: () => void
   onEdit?: () => void
   editLabel?: string
+  /** v0.2.3：右上角用户菜单（由调用方传入已登录用户时渲染） */
+  userMenu?: ReactNode
 }) {
   const { t, preference, locale, setPreference } = useI18n()
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -406,6 +408,7 @@ export function GlobalHeader({ projectName, onHome, onEdit, editLabel }: {
           </div>
         ) : null}
       </div>
+      {userMenu}
     </header>
   )
 }

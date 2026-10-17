@@ -608,3 +608,62 @@ describe('question mutation requests', () => {
     expect(JSON.parse(String(captured?.init?.body))).toEqual({ expectedUpdatedAt })
   })
 })
+
+describe('v0.2.3 用户账号前端接口', () => {
+  const testUser = {
+    id: '1',
+    username: 'alice',
+    displayName: 'Alice',
+    role: 'admin' as const,
+    isActive: true,
+    createdAt: '2026-10-17T00:00:00.000Z',
+    updatedAt: '2026-10-17T00:00:00.000Z',
+  }
+
+  it('getSession 返回登录用户，未登录时返回 null', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ ok: true, user: testUser })))
+    const { getSession } = await import('./api')
+    expect(await getSession()).toEqual(testUser)
+
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ ok: false, error: 'auth_required', message: '请先登录' }, { status: 401 })))
+    expect(await getSession()).toBeNull()
+  })
+
+  it('login 提交用户名密码并返回用户', async () => {
+    let captured: { input: RequestInfo | URL; init?: RequestInit } | undefined
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      captured = { input, init }
+      return Response.json({ ok: true, user: testUser })
+    }))
+    const { login } = await import('./api')
+    expect(await login('alice', 'testpass123')).toEqual(testUser)
+    expect(captured?.input).toBe('/api/auth/login')
+    expect(captured?.init?.method).toBe('POST')
+    expect(JSON.parse(String(captured?.init?.body))).toEqual({ username: 'alice', password: 'testpass123' })
+  })
+
+  it('logout 发送 POST 并在 401 时不抛错（幂等）', async () => {
+    let captured: { input: RequestInfo | URL; init?: RequestInit } | undefined
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      captured = { input, init }
+      return Response.json({ ok: true })
+    }))
+    const { logout } = await import('./api')
+    await logout()
+    expect(captured?.input).toBe('/api/auth/logout')
+    expect(captured?.init?.method).toBe('POST')
+  })
+
+  it('createAccount 提交建号参数', async () => {
+    let captured: { input: RequestInfo | URL; init?: RequestInit } | undefined
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      captured = { input, init }
+      return Response.json({ ok: true, user: { ...testUser, id: '2', username: 'bob' } }, { status: 201 })
+    }))
+    const { createAccount } = await import('./api')
+    const created = await createAccount({ username: 'bob', password: 'testpass123', role: 'user' })
+    expect(created.username).toBe('bob')
+    expect(captured?.input).toBe('/api/auth/register')
+    expect(JSON.parse(String(captured?.init?.body))).toEqual({ username: 'bob', password: 'testpass123', role: 'user' })
+  })
+})

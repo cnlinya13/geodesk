@@ -2637,3 +2637,38 @@ describe('GEO Desk project entry', () => {
     expect(html).toContain('settings-button')
   })
 })
+
+describe('v0.2.3 登录门禁与用户菜单', () => {
+  it('App 在会话确认后未登录时渲染登录页（源码门禁）', () => {
+    expect(appSource).toContain('sessionChecked && !currentUser')
+    expect(appSource).toContain('<LoginPage onLoggedIn={setCurrentUser} />')
+  })
+
+  it('登录页渲染用户名/密码输入与提交按钮', async () => {
+    const { LoginPage } = await import('./components/Auth')
+    const html = renderToStaticMarkup(<LoginPage onLoggedIn={() => undefined} />)
+    expect(html).toContain('login-username')
+    expect(html).toContain('login-password')
+    expect(html).toContain('type="password"')
+  })
+
+  it('用户菜单显示显示名与角色徽标', async () => {
+    const { UserMenu } = await import('./components/Auth')
+    const html = renderToStaticMarkup(
+      <UserMenu
+        user={{
+          id: '1', username: 'alice', displayName: 'Alice', role: 'admin',
+          isActive: true, createdAt: '', updatedAt: '',
+        }}
+        onLogout={() => undefined}
+      />,
+    )
+    expect(html).toContain('Alice')
+    expect(html).toContain('user-menu__role--admin')
+  })
+
+  it('登录页与用户菜单有对应样式', () => {
+    expect(cssRulesForClass(appCss, 'login-page').length).toBeGreaterThan(0)
+    expect(cssRulesForClass(appCss, 'user-menu__popover').length).toBeGreaterThan(0)
+  })
+})

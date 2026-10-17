@@ -34,6 +34,7 @@ import {
   type QuestionGenerationProgress,
 } from './api'
 import { copyArticleContent } from './article-copy'
+import { LoginPage, UserMenu } from './components/Auth'
 import { Button, Field, GlobalHeader, Icon, IconButton, MetricCard, Modal, OperationBar, OperationFeedback, PhaseNav, stages, StatusBadge } from './components/UI'
 import { TechnicalAuditPanel } from './components/TechnicalAuditPanel'
 import { ContentAuditPanel } from './components/ContentAuditPanel'
@@ -3784,6 +3785,15 @@ export default function App() {
     }} deletedArticleIds={deletedArticleIdsRef.current} onArticleDeleted={(articleId) => deletedArticleIdsRef.current.add(articleId)} />
   )
 
+  // v0.2.3 顶层登录门禁：会话确认后仍未登录，渲染全屏登录页
+  if (sessionChecked && !currentUser) {
+    return (
+      <div className="app">
+        <LoginPage onLoggedIn={setCurrentUser} />
+      </div>
+    )
+  }
+
   return (
     <div className="app">
       {route.kind !== 'report' ? <GlobalHeader
@@ -3791,6 +3801,7 @@ export default function App() {
         onHome={handleHome}
         onEdit={route.kind === 'project' && selectedProject ? () => openEdit() : undefined}
         editLabel={selectedProject?.questionsLockedAt && !selectedProject.websiteUrl ? t('header.addWebsite') : t('header.editProject')}
+        userMenu={currentUser ? <UserMenu user={currentUser} onLogout={() => setCurrentUser(null)} /> : undefined}
       /> : null}
       {content}
       {modalOpen ? <ProjectFormModal project={modalProject ?? null} initialValues={modalInitialValues} onClose={closeModal} onSaved={handleSaved} onDeleted={handleDeleted} /> : null}

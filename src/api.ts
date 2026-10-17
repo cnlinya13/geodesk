@@ -1286,3 +1286,18 @@ export async function login(username: string, password: string): Promise<Current
 export async function logout(): Promise<void> {
   await request<{ ok: true }>('/api/auth/logout', { method: 'POST' })
 }
+
+/** 仅 admin 可调用：创建账号（Q1：不开放注册）。 */
+export async function createAccount(input: {
+  username: string
+  password: string
+  displayName?: string
+  role?: 'admin' | 'user'
+}): Promise<CurrentUser> {
+  const result = await request<{ ok: true; user: CurrentUser }>('/api/auth/register', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+  return result.user
+}
