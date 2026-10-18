@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.3.2 - 2026-10-18
+
+- 新增一键部署脚本 `deploy.sh`：`curl -fsSL …/deploy.sh | sudo bash` 一条命令拉取最新版并完成配置（Node 安装、前端构建、systemd 服务、nginx 反向代理），默认 IP 访问、可选绑定域名自动配 HTTPS；完全非交互、幂等可重跑；README 中英双语加入一键部署说明。
+
 ## 0.3.1 - 2026-10-17
 
 - 公开演示免登录：demo server 新增演示会话接口（`GET /api/auth/session`、`POST /api/auth/login`、`POST /api/auth/logout` 返回演示用户，改密接口打桩通过），演示站开箱即用，不再卡在登录页；真实模式的账号体系不受影响。

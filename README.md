@@ -48,6 +48,22 @@ The demo does not perform real technical checks, content checks, or PDF generati
 
 Press `Ctrl+C` in the terminal to stop the demo.
 
+### One-click deploy to a server
+
+To put the synthetic demo online for others to try (no database, no model key, no login needed):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/cnlinya13/geodesk/main/deploy.sh | sudo bash
+```
+
+Then open `http://<your-server-ip>`. To pin a version or bind a domain (enables HTTPS via certbot):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/cnlinya13/geodesk/main/deploy.sh | sudo bash -s v0.3.2 demo.example.com
+```
+
+See `deploy.sh` (`--help`) for all options. Re-running the command updates to the specified version.
+
 ## Real mode: an isolated database and Doubao configuration
 
 ### 1. Install and configure
