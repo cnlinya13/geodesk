@@ -46,7 +46,7 @@ const pgMock = vi.hoisted(() => {
   return { state, Pool: FakePool }
 })
 
-vi.mock('pg', () => ({ Pool: pgMock.Pool }))
+vi.mock('./sqlite-pool.ts', () => ({ SqlitePool: pgMock.Pool }))
 
 const db = await import('./db.ts')
 
@@ -1355,7 +1355,7 @@ describe('content audit record validation and generation gate', () => {
 
   it('atomically stores a validated partial snapshot without closing the checking run', async () => {
     pgMock.state.responder = (sql, values) => {
-      if (sql.includes('content_audit || jsonb_build_object')) return result([], 1)
+      if (sql.includes('jsonb_merge(content_audit, json_')) return result([], 1)
       throw new Error(`unexpected SQL: ${sql}`)
     }
 
@@ -1379,7 +1379,7 @@ describe('content audit record validation and generation gate', () => {
 
   it('redacts partial execution errors and rejects stale run tokens', async () => {
     pgMock.state.responder = (sql) => {
-      if (sql.includes('content_audit || jsonb_build_object')) return result([], 1)
+      if (sql.includes('jsonb_merge(content_audit, json_')) return result([], 1)
       throw new Error(`unexpected SQL: ${sql}`)
     }
     const progress = { stage: 'checking' as const, totalPages: 1, processedPages: 1, totalClaims: 1, processedClaims: 1 }
@@ -1409,7 +1409,7 @@ describe('content audit record validation and generation gate', () => {
 
     resetMock()
     pgMock.state.responder = (sql) => {
-      if (sql.includes('content_audit || jsonb_build_object')) return result([], 0)
+      if (sql.includes('jsonb_merge(content_audit, json_')) return result([], 0)
       throw new Error(`unexpected SQL: ${sql}`)
     }
     await expect(db.saveContentAuditProgress('1', 'wrong-token', progress, partialSnapshot(1))).resolves.toBe(false)

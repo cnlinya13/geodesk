@@ -35,7 +35,7 @@ RAW_BASE="https://raw.githubusercontent.com/${REPO}/main"
 INSTALL_DIR="/opt/geodesk"
 NODE_VERSION="24.20.0"
 NPM_MIRROR="${NPM_MIRROR:-https://registry.npmmirror.com}"
-FALLBACK_VERSION="v0.3.1"
+FALLBACK_VERSION="v0.3.2"
 
 usage() {
   sed -n '2,/^set -euo/p' "$0" | sed 's/^# \{0,1\}//'

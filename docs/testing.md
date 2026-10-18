@@ -26,18 +26,18 @@ The Vitest suite covers business rules, UI boundaries, API wire decoders, source
 - monitoring round 1 with 20 answers;
 - explicit PDF-disabled response and no-external-request status.
 
-The smoke script uses only loopback HTTP. It never creates `.env.local`, connects to PostgreSQL, sends a provider request or reads the source project.
+The smoke script uses only loopback HTTP. It never creates `.env.local`, touches the SQLite database file, sends a provider request or reads the source project.
 
 ## Database checks
 
-Database checks require an independently confirmed local PostgreSQL instance:
+Database checks run against a scratch SQLite file (set `DATABASE_PATH` to a temp path):
 
 ```bash
 npm run migrate:db
 npm run check:db
 ```
 
-These commands are intentionally not part of `smoke:demo`. A release report must say whether migration/check were run, against which non-production environment class, and which parts remain unverified when no independent PostgreSQL is available.
+These commands are intentionally not part of `smoke:demo`. A release report must say whether migration/check were run and against which scratch database file.
 
 ## Interpreting failures
 

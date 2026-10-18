@@ -30,7 +30,7 @@ const pgMock = vi.hoisted(() => {
   return { state, Pool: FakePool }
 })
 
-vi.mock('pg', () => ({ Pool: pgMock.Pool }))
+vi.mock('./sqlite-pool.ts', () => ({ SqlitePool: pgMock.Pool }))
 
 const db = await import('./db.ts')
 const indexSource = readFileSync(fileURLToPath(new URL('./index.ts', import.meta.url)), 'utf8')

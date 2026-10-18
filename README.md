@@ -21,7 +21,7 @@ Create a project → Define questions → Initial diagnosis → Checks and optim
 | Website checks | Run non-AI technical checks separately from model-assisted content checks, retaining issues and evidence. |
 | Optimization tasks | Generate article tasks and content; users publish externally and then confirm publication manually in the workspace. |
 | Ongoing monitoring | Start separate monitoring rounds and compare results using the same question scope. |
-| State and data | Persist business results and background task states in PostgreSQL, with migrations and task progress queries. |
+| State and data | Persist business results and background task states in a local SQLite file, with migrations and task progress queries. |
 
 The current version does not include a complete multi-user account and permission system, automatic publishing, scheduled monitoring by default, or centrally funded model usage. **Do not expose the current API directly to the public internet.**
 
@@ -40,7 +40,7 @@ npm run demo
 
 Open **http://127.0.0.1:5174**. The demo API uses `127.0.0.1:8788`.
 
-The demo requires no PostgreSQL instance, `.env.local`, or model API key. Installing dependencies may require internet access; the running demo does not request real websites or models. It uses synthetic data stored in memory, which resets when the service restarts.
+The demo requires no database file, `.env.local`, or model API key. Installing dependencies may require internet access; the running demo does not request real websites or models. It uses synthetic data stored in memory, which resets when the service restarts.
 
 Try this flow: create a project → generate and confirm 20 questions → view synthetic diagnosis and citations → generate one optimization task and article body → manually confirm publication → complete one synthetic monitoring round.
 
@@ -64,11 +64,11 @@ curl -fsSL https://raw.githubusercontent.com/cnlinya13/geodesk/main/deploy.sh | 
 
 See `deploy.sh` (`--help`) for all options. Re-running the command updates to the specified version.
 
-## Real mode: an isolated database and Doubao configuration
+## Real mode: a local SQLite database and Doubao configuration
 
 ### 1. Install and configure
 
-In addition to Node.js and npm, real mode requires PostgreSQL. The supplied Compose configuration uses PostgreSQL 16; the current documentation requires PostgreSQL 14 or later for a separately managed database.
+Real mode needs no database server. It uses a local SQLite file (via Node's built-in `node:sqlite`), created automatically at `./data/geodesk.db` on first run.
 
 ```bash
 npm ci
@@ -77,29 +77,13 @@ cp .env.example .env.local
 
 Edit `.env.local`:
 
-- `PGHOST`, `PGPORT`, `PGUSER`, `PGPASSWORD`: connection settings for an isolated development database.
-- `PGDATABASE`: must be `geodesk`.
+- `DATABASE_PATH`: path to the SQLite file. Leave empty to use the default `./data/geodesk.db`.
+- `DATA_DIR`: directory for the default database file. Leave empty to use `./data`.
 - `DOUBAO_API_KEY`, `DOUBAO_MODEL_ID`, `DOUBAO_API_ENDPOINT`: your Doubao service configuration. Real model operations require all three; the endpoint must satisfy the client's HTTPS validation.
 
 Do not commit `.env.local` or configure model keys in the browser. The server also accepts a complete process environment; the file itself is optional.
 
-### 2. Start an isolated PostgreSQL instance
-
-If using Docker Compose:
-
-```bash
-docker compose up -d
-```
-
-This starts only the database, not the application. The database binds to `127.0.0.1:55432` and uses a dedicated named volume. The current Compose file and environment example supply a matching local demo password, which must not be used as a production credential.
-
-To use a custom password, update `PGPASSWORD` in `.env.local` and supply the same value to Compose through the shell environment variable `GEODESK_POSTGRES_PASSWORD`. Compose does not automatically read `.env.local`; changing a variable also does not change the password of an already initialized database volume.
-
-Without Docker, point the configuration at a PostgreSQL database you have created and confirmed is isolated.
-
-### 3. Migrate, check, and start
-
-After confirming that the target is not a production database, run:
+### 2. Migrate, check, and start
 
 ```bash
 npm run migrate:db
@@ -107,14 +91,14 @@ npm run check:db
 npm run dev
 ```
 
-Migrations change the database schema. `check:db` checks connectivity and existing schema, so migrate before checking on first use. Database-name validation is not a substitute for verifying the target environment yourself.
+Migrations change the database schema. `check:db` checks the database file and existing schema, so migrate before checking on first use. Back up `geodesk.db` before schema changes if it holds data you care about.
 
 | Service | Address |
 | --- | --- |
 | Web | http://127.0.0.1:5173 |
 | API | http://127.0.0.1:8787 |
 
-Press `Ctrl+C` to stop the application. With Compose, run `docker compose stop` to stop the database while retaining its data.
+Press `Ctrl+C` to stop the application. The SQLite database file is left in place; back it up if it holds data you care about.
 
 ## Architecture and data boundaries
 
@@ -122,7 +106,7 @@ Press `Ctrl+C` to stop the application. With Compose, run `docker compose stop` 
 Browser: React / TypeScript / Vite
     │ Same-origin /api proxy
 Local Node.js HTTP API
-    ├── PostgreSQL: projects, questions, diagnosis answers, articles, audit results, and task states
+    ├── SQLite: projects, questions, diagnosis answers, articles, audit results, and task states
     ├── Doubao: server-side model requests
     └── Website reading: technical and content checks
 ```
@@ -160,7 +144,7 @@ npm run check:public
 ### Current verification limits
 
 - Dependency audit findings for `sanitize-html` and `undici` were fixed in 0.1.1 (upgraded to 2.17.7 and 7.29.1) with regression checks (`npm test`, `npm run build`, `npm run smoke:demo`).
-- Real migration acceptance was completed in 0.1.2 against an isolated PostgreSQL 16 instance: all 18 migrations applied cleanly on a fresh database and `npm run check:db` reported the schema ready.
+- Migration acceptance was completed in 0.1.2 against an isolated PostgreSQL 16 instance (pre-SQLite era): all 18 migrations applied cleanly on a fresh database and `npm run check:db` reported the schema ready.
 - Local Host/Origin validation does not replace production-grade authentication and authorization.
 
 See the [testing guide](docs/testing.md) and [release checklist](docs/release-checklist.md).

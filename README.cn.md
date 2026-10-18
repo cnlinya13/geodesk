@@ -21,7 +21,7 @@ GEODesk 是面向网站运营者、内容团队和 GEO 实践者的 AI 搜索可
 | 网站检查 | 分开执行不依赖 AI 的技术检查和模型参与的内容检查，保留问题与证据。 |
 | 优化任务 | 生成文章优化任务与正文，由使用者实际发布后在工作台人工确认。 |
 | 持续监测 | 发起独立监测轮次，在相同问题口径下比较结果。 |
-| 状态与数据 | 使用 PostgreSQL 保存业务结果和后台任务状态，支持迁移及任务进度查询。 |
+| 状态与数据 | 使用本地 SQLite 文件保存业务结果和后台任务状态，支持迁移及任务进度查询。 |
 
 当前没有完整的多用户账号与权限系统，也不提供自动发布、默认定时监测或统一代付模型费用。**请勿将当前 API 直接暴露到公网。**
 
@@ -40,7 +40,7 @@ npm run demo
 
 打开 **http://127.0.0.1:5174**。演示 API 使用 `127.0.0.1:8788`。
 
-演示不需要 PostgreSQL、`.env.local` 或模型 API Key。安装依赖可能需要联网；演示运行本身不请求真实网站或模型。界面使用合成数据，内存数据在服务重启后重置。
+演示不需要数据库文件、`.env.local` 或模型 API Key。安装依赖可能需要联网；演示运行本身不请求真实网站或模型。界面使用合成数据，内存数据在服务重启后重置。
 
 可体验的流程：创建项目 → 生成并确认 20 题 → 查看合成诊断和引用 → 生成一条优化任务与正文 → 人工确认发布 → 完成一轮合成复测。
 
@@ -64,11 +64,11 @@ curl -fsSL https://raw.githubusercontent.com/cnlinya13/geodesk/main/deploy.sh | 
 
 全部选项见 `deploy.sh`（`--help`）。重复执行即更新到指定版本。
 
-## 真实运行：独立数据库与豆包配置
+## 真实运行：本地 SQLite 数据库与豆包配置
 
 ### 1. 安装与配置
 
-除上述 Node.js 和 npm 环境外，需要 PostgreSQL。随仓库提供的 Compose 配置使用 PostgreSQL 16；自行配置数据库时，当前文档要求 PostgreSQL 14 或更高版本。
+真实运行不需要数据库服务。使用本地 SQLite 文件（Node 内置 `node:sqlite`），首次运行时自动创建于 `./data/geodesk.db`。
 
 ```bash
 npm ci
@@ -77,29 +77,13 @@ cp .env.example .env.local
 
 编辑 `.env.local`：
 
-- `PGHOST`、`PGPORT`、`PGUSER`、`PGPASSWORD`：独立开发数据库的连接配置。
-- `PGDATABASE`：必须为 `geodesk`。
+- `DATABASE_PATH`：SQLite 文件路径，留空使用默认 `./data/geodesk.db`。
+- `DATA_DIR`：默认数据库文件所在目录，留空使用 `./data`。
 - `DOUBAO_API_KEY`、`DOUBAO_MODEL_ID`、`DOUBAO_API_ENDPOINT`：由使用者提供的豆包服务配置；真实模型操作需要全部配置，endpoint 须符合客户端的 HTTPS 校验。
 
 不要将 `.env.local` 提交到仓库，也不要在浏览器端设置模型密钥。服务端也支持完整的进程环境变量，不强制要求该文件存在。
 
-### 2. 启动独立 PostgreSQL
-
-如果使用 Docker Compose：
-
-```bash
-docker compose up -d
-```
-
-该命令只启动数据库，不启动应用。数据库绑定 `127.0.0.1:55432`，使用独立命名卷。现有 Compose 与配置示例提供了相匹配的本地演示密码，不能作为生产凭据。
-
-自定义密码时，应同时更新 `.env.local` 中的 `PGPASSWORD`，并通过 shell 环境变量 `GEODESK_POSTGRES_PASSWORD` 向 Compose 提供相同值。Compose 不会自动读取 `.env.local`；已有数据库卷的密码也不会因修改变量而自动改变。
-
-不使用 Docker 时，将配置指向自行创建并确认隔离的 PostgreSQL 即可。
-
-### 3. 迁移、检查与启动
-
-确认目标不是生产数据库后执行：
+### 2. 迁移、检查与启动
 
 ```bash
 npm run migrate:db
@@ -107,14 +91,14 @@ npm run check:db
 npm run dev
 ```
 
-迁移会修改数据库结构；`check:db` 会检查连接和已有结构，因此首次运行应先迁移再检查。数据库名称校验不能替代人工确认目标环境。
+迁移会修改数据库结构；`check:db` 会检查数据库文件和已有结构，因此首次运行应先迁移再检查。geodesk.db 有重要数据时请先备份。
 
 | 服务 | 地址 |
 | --- | --- |
 | Web | http://127.0.0.1:5173 |
 | API | http://127.0.0.1:8787 |
 
-按 `Ctrl+C` 停止应用。使用 Compose 时，可运行 `docker compose stop` 停止数据库并保留数据。
+按 `Ctrl+C` 停止应用。SQLite 数据库文件会保留在原处，有重要数据请备份。
 
 ## 架构与数据边界
 
@@ -122,7 +106,7 @@ npm run dev
 浏览器：React / TypeScript / Vite
     │ 同源 /api 代理
 本地 Node.js HTTP API
-    ├── PostgreSQL：项目、问题、诊断回答、文章、检查结果和任务状态
+    ├── SQLite：项目、问题、诊断回答、文章、检查结果和任务状态
     ├── 豆包：服务端模型调用
     └── 网站读取：技术与内容检查
 ```
@@ -160,7 +144,7 @@ npm run check:public
 ### 当前验证限制
 
 - `sanitize-html` 与 `undici` 的依赖审计告警已在 0.1.1 修复（分别升级到 2.17.7 与 7.29.1），并跑过回归验证（`npm test`、`npm run build`、`npm run smoke:demo`）。
-- 0.1.2 已在隔离的 PostgreSQL 16 实例上完成真实迁移验收：18 个迁移在全新空库上全部成功执行，`npm run check:db` 确认表结构就绪。
+- 0.1.2 已在隔离的 PostgreSQL 16 实例上完成真实迁移验收（SQLite 时代之前）：18 个迁移在全新空库上全部成功执行，`npm run check:db` 确认表结构就绪。
 - 本地 Host/Origin 校验不能替代生产级身份认证与授权。
 
 详见 [测试说明](docs/testing.md) 和 [发布清单](docs/release-checklist.md)。

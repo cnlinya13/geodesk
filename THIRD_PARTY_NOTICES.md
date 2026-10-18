@@ -8,7 +8,6 @@
 | --- | --- | --- |
 | React、React DOM、React Markdown | UI 和 Markdown 渲染 | MIT |
 | Vite、TypeScript、Vitest、tsx、concurrently | 构建、类型检查、测试和开发脚本 | MIT / Apache-2.0（TypeScript） |
-| pg | PostgreSQL 客户端 | MIT |
 | jsPDF、html2canvas | 报告生成 | MIT |
 | lucide-react | 图标 | ISC |
 | node-html-parser、rdfa-streaming-parser、microdata-rdf-streaming-parser | 页面和结构化数据解析 | MIT |

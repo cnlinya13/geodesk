@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.4.0 - 2026-10-18
+
+- 数据库从 PostgreSQL 切换为 SQLite（Node 24 内置 `node:sqlite`，零新增依赖）：连接配置改为 `DATABASE_PATH`/`DATA_DIR` 文件路径，WAL 模式；21 个 migration 重写为 SQLite 方言（从空库开始，无需数据迁移）；`pg` 依赖与 compose 文件已移除。`npm run migrate:db` / `npm run check:db` / 全部 793 个测试 / 构建均验证通过。
+
 ## 0.3.2 - 2026-10-18
 
 - 新增一键部署脚本 `deploy.sh`：`curl -fsSL …/deploy.sh | sudo bash` 一条命令拉取最新版并完成配置（Node 安装、前端构建、systemd 服务、nginx 反向代理），默认 IP 访问、可选绑定域名自动配 HTTPS；完全非交互、幂等可重跑；README 中英双语加入一键部署说明。

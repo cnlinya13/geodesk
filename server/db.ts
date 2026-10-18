@@ -4,7 +4,7 @@ import { existsSync } from 'node:fs'
 import { readdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { Pool, type PoolClient, type PoolConfig } from 'pg'
+import { SqlitePool, type SqliteQueryClient, withNamedLock } from './sqlite-pool.ts'
 import {
   type GeneratedQuestion,
   type QuestionCategory,
@@ -80,7 +80,7 @@ if (existsSync(envFile)) {
   }
 }
 
-let pool: Pool | undefined
+let pool: SqlitePool | undefined
 
 export type Project = {
   id: string
@@ -247,53 +247,17 @@ export type ProjectInput = {
   expectedUpdatedAt?: unknown
 }
 
-function databaseConfig(): PoolConfig {
+function databaseFileLabel(): string {
   if (envLoadFailed) {
     throw new Error('Database configuration is unavailable')
   }
-
-  // Unit tests replace `pg.Pool` with an in-memory adapter.  Keep that
-  // adapter independent from a developer's environment while preserving a
-  // hard configuration failure for every real runtime.
-  if (process.env.NODE_ENV === 'test') {
-    return {
-      host: '127.0.0.1',
-      port: 5432,
-      database: expectedDatabase,
-      user: 'test',
-      password: 'test',
-      max: 4,
-      connectionTimeoutMillis: 3_000,
-      idleTimeoutMillis: 5_000,
-    }
-  }
-
-  const host = process.env.PGHOST?.trim()
-  const portValue = process.env.PGPORT?.trim()
-  const database = process.env.PGDATABASE?.trim()
-  const user = process.env.PGUSER?.trim()
-  const password = process.env.PGPASSWORD
-  const port = Number(portValue)
-
-  if (!host || !portValue || !Number.isInteger(port) || port < 1 || port > 65535 || !database || !user || !password) {
-    throw new Error('Database configuration is incomplete')
-  }
-
-  return {
-    host,
-    port,
-    database,
-    user,
-    password,
-    max: 4,
-    connectionTimeoutMillis: 3_000,
-    idleTimeoutMillis: 5_000,
-  }
+  // 单元测试走 sqlite-pool 的 :memory: 库；真实运行用文件库。
+  return 'sqlite'
 }
 
-export function databasePool(): Pool {
+export function databasePool(): SqlitePool {
   if (!pool) {
-    pool = new Pool(databaseConfig())
+    pool = new SqlitePool()
   }
 
   return pool
@@ -635,13 +599,7 @@ function contentAuditRecordFromValue(value: unknown): ContentAuditRecord | null 
 export { contentAuditRecordFromValue }
 
 export async function checkDatabase(): Promise<{ ok: true; database: typeof expectedDatabase }> {
-  const result = await databasePool().query<{ database: string }>('select current_database() as database')
-  const database = result.rows[0]?.database
-
-  if (database !== expectedDatabase) {
-    throw new Error('Unexpected database')
-  }
-
+  await databasePool().query('select 1 as ok')
   return { ok: true, database: expectedDatabase }
 }
 
@@ -655,15 +613,9 @@ export async function checkSchema(): Promise<void> {
   await activePool.query('select 1 from geo_article_batches limit 1')
   await activePool.query('select 1 from geo_project_articles limit 1')
   const columns = await activePool.query<{ table_name: string; column_name: string }>(
-    `select table_name, column_name
-     from information_schema.columns
-     where table_schema = current_schema()
-       and ((table_name = 'geo_projects' and column_name in ('initial_diagnosis_status', 'initial_recommendation_rate', 'initial_official_citation_rate', 'initial_diagnosis_at', 'technical_audit', 'content_audit', 'content_audit_history', 'questions_generation_task_id'))
-         or (table_name = 'geo_diagnosis_runs' and column_name in ('status', 'run_type', 'requested_model', 'round_number', 'published_article_count', 'summary_analysis', 'recommendation_rate', 'official_citation_rate', 'report_pdf', 'report_pdf_generated_at', 'report_refresh_status', 'report_refresh_started_at', 'report_refresh_error', 'diagnosis_ai_task_id'))
-         or (table_name = 'geo_diagnosis_answers' and column_name in ('answer_text', 'citation_urls', 'response_model', 'recommended', 'official_citation'))
-         or (table_name = 'geo_article_batches' and column_name in ('project_id', 'requested_model', 'response_model', 'generated_at'))
-         or (table_name = 'geo_project_questions' and column_name in ('id', 'project_id', 'position', 'question', 'generated_at', 'category', 'is_locked'))
-         or (table_name = 'geo_project_articles' and column_name in ('project_id', 'batch_id', 'title', 'question_position', 'question_positions', 'content_html', 'publish_status', 'confirmed_at', 'writing_status', 'writing_error', 'writing_attempt_token', 'writing_started_at', 'writing_lease_expires_at', 'updated_at', 'optimization_type', 'optimization_direction', 'target_page_url', 'target_page_title', 'source_website_url', 'source_website_crawl_started_at', 'source_diagnosis_run_id')))` ,
+    `select m.name as table_name, p.name as column_name
+     from sqlite_master m join pragma_table_info(m.name) p
+     where m.type = 'table' and m.name like 'geo_%'`,
   )
   const columnKeys = new Set(columns.rows.map((row) => `${row.table_name}.${row.column_name}`))
   const requiredColumns = [
@@ -723,56 +675,51 @@ export async function checkSchema(): Promise<void> {
     'geo_project_articles.source_diagnosis_run_id',
   ]
   if (requiredColumns.some((column) => !columnKeys.has(column))) throw new Error('Initial diagnosis schema is incomplete')
-  const constraints = await activePool.query<{ conname: string }>(
-    `select conname from pg_constraint
-     where connamespace = current_schema()::regnamespace
-       and conrelid in ('geo_projects'::regclass, 'geo_project_questions'::regclass, 'geo_diagnosis_runs'::regclass,
-                        'geo_diagnosis_answers'::regclass, 'geo_project_articles'::regclass)
-       and conname in ('geo_projects_company_name_unique', 'geo_projects_content_audit_history_array_check', 'geo_project_questions_category_check',
-                       'geo_diagnosis_runs_type_check', 'geo_diagnosis_runs_report_refresh_status_check',
-                       'geo_diagnosis_runs_round_check', 'geo_diagnosis_runs_published_article_count_check',
-                       'geo_diagnosis_answers_run_position_unique', 'geo_project_articles_question_position_check',
-                       'geo_project_articles_question_positions_check', 'geo_project_articles_title_not_blank',
-                       'geo_project_articles_content_not_blank', 'geo_project_articles_publish_status_check',
-                       'geo_project_articles_writing_status_check', 'geo_project_articles_writing_content_check',
-                       'geo_project_articles_optimization_type_not_blank', 'geo_project_articles_optimization_direction_check', 'geo_project_articles_published_ready_check')`,
+  // SQLite 把命名 CHECK/UNIQUE 约束保留在建表 DDL 文本里；索引查 sqlite_master。
+  const ddlRows = await activePool.query<{ name: string; sql: string }>(
+    `select name, sql from sqlite_master where type in ('table', 'index') and sql is not null`,
   )
-  const constraintNames = new Set(constraints.rows.map((row) => row.conname))
-  const indexes = await activePool.query<{ indexname: string }>(
-    `select indexname from pg_indexes
-     where schemaname = current_schema()
-       and indexname in ('geo_project_articles_project_pending_title_unique',
-                         'geo_project_articles_project_pending_target_unique',
-                         'geo_diagnosis_runs_project_round_unique',
-                         'geo_diagnosis_runs_project_initial_unique',
-                         'geo_diagnosis_runs_one_unfinished_monitoring_unique',
-                         'geo_diagnosis_runs_report_refresh_idx')`,
+  const ddlText = ddlRows.rows.map((row) => `${row.name} ${row.sql ?? ''}`).join('\n')
+  const indexNames = new Set(
+    ddlRows.rows
+      .filter((row) => {
+        const sql = (row.sql ?? '').toUpperCase()
+        return sql.startsWith('CREATE INDEX') || sql.startsWith('CREATE UNIQUE INDEX')
+      })
+      .map((row) => row.name),
   )
-  const indexNames = new Set(indexes.rows.map((row) => row.indexname))
-  if (![...constraintNames].includes('geo_projects_company_name_unique')
-    || !constraintNames.has('geo_projects_content_audit_history_array_check')
-    || !constraintNames.has('geo_project_questions_category_check')
-    || !constraintNames.has('geo_diagnosis_runs_type_check')
-    || !constraintNames.has('geo_diagnosis_runs_report_refresh_status_check')
-    || !constraintNames.has('geo_diagnosis_runs_round_check')
-    || !constraintNames.has('geo_diagnosis_runs_published_article_count_check')
-    || !constraintNames.has('geo_diagnosis_answers_run_position_unique')
-    || !constraintNames.has('geo_project_articles_question_position_check')
-    || !constraintNames.has('geo_project_articles_question_positions_check')
-    || !constraintNames.has('geo_project_articles_title_not_blank')
-    || !constraintNames.has('geo_project_articles_content_not_blank')
-    || !constraintNames.has('geo_project_articles_publish_status_check')
-    || !constraintNames.has('geo_project_articles_writing_status_check')
-    || !constraintNames.has('geo_project_articles_writing_content_check')
-    || !constraintNames.has('geo_project_articles_optimization_type_not_blank')
-    || !constraintNames.has('geo_project_articles_optimization_direction_check')
-    || !constraintNames.has('geo_project_articles_published_ready_check')
-    || !indexNames.has('geo_project_articles_project_pending_title_unique')
-    || !indexNames.has('geo_project_articles_project_pending_target_unique')
-    || !indexNames.has('geo_diagnosis_runs_project_round_unique')
-    || !indexNames.has('geo_diagnosis_runs_project_initial_unique')
-    || !indexNames.has('geo_diagnosis_runs_one_unfinished_monitoring_unique')
-    || !indexNames.has('geo_diagnosis_runs_report_refresh_idx')) {
+  const requiredConstraints = [
+    'geo_projects_company_name_unique',
+    'geo_projects_content_audit_history_array_check',
+    'geo_project_questions_category_check',
+    'geo_diagnosis_runs_type_check',
+    'geo_diagnosis_runs_report_refresh_status_check',
+    'geo_diagnosis_runs_round_check',
+    'geo_diagnosis_runs_published_article_count_check',
+    'geo_diagnosis_answers_run_position_unique',
+    'geo_project_articles_question_position_check',
+    'geo_project_articles_question_positions_check',
+    'geo_project_articles_title_not_blank',
+    'geo_project_articles_content_not_blank',
+    'geo_project_articles_publish_status_check',
+    'geo_project_articles_writing_status_check',
+    'geo_project_articles_writing_content_check',
+    'geo_project_articles_optimization_type_not_blank',
+    'geo_project_articles_optimization_direction_check',
+    'geo_project_articles_published_ready_check',
+  ]
+  const requiredIndexes = [
+    'geo_project_articles_project_pending_title_unique',
+    'geo_project_articles_project_pending_target_unique',
+    'geo_diagnosis_runs_project_round_unique',
+    'geo_diagnosis_runs_project_initial_unique',
+    'geo_diagnosis_runs_one_unfinished_monitoring_unique',
+    'geo_diagnosis_runs_report_refresh_idx',
+  ]
+  if (
+    requiredConstraints.some((name) => !ddlText.includes(name)) ||
+    requiredIndexes.some((name) => !indexNames.has(name))
+  ) {
     throw new Error('Initial diagnosis constraints are incomplete')
   }
 }
@@ -786,7 +733,7 @@ export async function runMigrations(): Promise<string[]> {
   await activePool.query(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
       version TEXT PRIMARY KEY,
-      applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      applied_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     )
   `)
 
@@ -801,7 +748,7 @@ export async function runMigrations(): Promise<string[]> {
     const client = await activePool.connect()
     try {
       await client.query('BEGIN')
-      await client.query(sql)
+      await client.execScript(sql)
       await client.query('insert into schema_migrations (version) values ($1)', [file])
       await client.query('COMMIT')
       applied.push(file)
@@ -819,24 +766,22 @@ export async function runMigrations(): Promise<string[]> {
 export async function listProjects(search = ''): Promise<Project[]> {
   const result = await databasePool().query(
     `select p.*,
-            latest.recommendation_rate as latest_monitoring_recommendation_rate,
-            latest.official_citation_rate as latest_monitoring_official_citation_rate,
-            monitoring_time.started_at as latest_monitoring_at
+            (select recommendation_rate
+             from geo_diagnosis_runs
+             where project_id = p.id and run_type = 'monitoring' and status = 'completed'
+             order by round_number desc
+             limit 1) as latest_monitoring_recommendation_rate,
+            (select official_citation_rate
+             from geo_diagnosis_runs
+             where project_id = p.id and run_type = 'monitoring' and status = 'completed'
+             order by round_number desc
+             limit 1) as latest_monitoring_official_citation_rate,
+            (select started_at
+             from geo_diagnosis_runs
+             where project_id = p.id and run_type = 'monitoring'
+             order by started_at desc, round_number desc
+             limit 1) as latest_monitoring_at
      from geo_projects p
-     left join lateral (
-       select recommendation_rate, official_citation_rate, completed_at
-       from geo_diagnosis_runs
-       where project_id = p.id and run_type = 'monitoring' and status = 'completed'
-       order by round_number desc
-       limit 1
-     ) latest on true
-     left join lateral (
-       select started_at
-       from geo_diagnosis_runs
-       where project_id = p.id and run_type = 'monitoring'
-       order by started_at desc, round_number desc
-       limit 1
-     ) monitoring_time on true
      where ($1 = '' or p.company_name ilike '%' || $1 || '%')
      order by p.updated_at desc, p.id desc`,
     [search.trim()],
@@ -844,35 +789,33 @@ export async function listProjects(search = ''): Promise<Project[]> {
   return result.rows.map(projectFromRow)
 }
 
-export async function getProject(id: string, queryClient?: Pick<PoolClient, 'query'>): Promise<Project | null> {
+export async function getProject(id: string, queryClient?: SqliteQueryClient): Promise<Project | null> {
   const executor = queryClient ?? databasePool()
   const result = await executor.query(
     `select p.*,
-            latest.recommendation_rate as latest_monitoring_recommendation_rate,
-            latest.official_citation_rate as latest_monitoring_official_citation_rate,
-            monitoring_time.started_at as latest_monitoring_at
+            (select recommendation_rate
+             from geo_diagnosis_runs
+             where project_id = p.id and run_type = 'monitoring' and status = 'completed'
+             order by round_number desc
+             limit 1) as latest_monitoring_recommendation_rate,
+            (select official_citation_rate
+             from geo_diagnosis_runs
+             where project_id = p.id and run_type = 'monitoring' and status = 'completed'
+             order by round_number desc
+             limit 1) as latest_monitoring_official_citation_rate,
+            (select started_at
+             from geo_diagnosis_runs
+             where project_id = p.id and run_type = 'monitoring'
+             order by started_at desc, round_number desc
+             limit 1) as latest_monitoring_at
      from geo_projects p
-     left join lateral (
-       select recommendation_rate, official_citation_rate, completed_at
-       from geo_diagnosis_runs
-       where project_id = p.id and run_type = 'monitoring' and status = 'completed'
-       order by round_number desc
-       limit 1
-     ) latest on true
-     left join lateral (
-       select started_at
-       from geo_diagnosis_runs
-       where project_id = p.id and run_type = 'monitoring'
-       order by started_at desc, round_number desc
-       limit 1
-     ) monitoring_time on true
      where p.id = $1`,
     [id],
   )
   return result.rows[0] ? projectFromRow(result.rows[0]) : null
 }
 
-async function getQuestions(id: string, queryClient?: Pick<PoolClient, 'query'>): Promise<Question[]> {
+async function getQuestions(id: string, queryClient?: SqliteQueryClient): Promise<Question[]> {
   const result = await (queryClient ?? databasePool()).query(
     `select id, position, question, generated_at, category, is_locked
      from geo_project_questions
@@ -893,7 +836,7 @@ function websitePageFromRow(row: Record<string, unknown>): WebsitePageResult {
   }
 }
 
-export async function getWebsitePages(id: string, queryClient?: Pick<PoolClient, 'query'>): Promise<WebsitePageResult[]> {
+export async function getWebsitePages(id: string, queryClient?: SqliteQueryClient): Promise<WebsitePageResult[]> {
   const executor = queryClient ?? databasePool()
   const result = await executor.query(
     `select url, title, body_text, status, error
@@ -1313,7 +1256,7 @@ function latestContentAuditHistory(value: unknown): ContentAuditRecord | null {
 /** Read the one current content-audit record; malformed JSON is unavailable. */
 export async function getContentAuditRecord(
   id: string,
-  queryClient?: Pick<PoolClient, 'query'>,
+  queryClient?: SqliteQueryClient,
 ): Promise<ContentAuditReadRecord | null> {
   const result = await (queryClient ?? databasePool()).query<{ content_audit: unknown; content_audit_history: unknown }>(
     `select content_audit, content_audit_history
@@ -1377,7 +1320,7 @@ function contentAuditGenerationRoundMatches(record: ContentAuditRecord | null, s
 export async function assertContentAuditCurrent(
   id: string,
   startedAt: string,
-  queryClient?: PoolClient,
+  queryClient?: SqliteQueryClient,
 ): Promise<void> {
   const client = queryClient ?? await databasePool().connect()
   const ownsClient = !queryClient
@@ -1515,24 +1458,24 @@ export async function saveContentAuditProgress(
   const result = await databasePool().query(
     hasCheckpoint
       ? `update geo_projects
-         set content_audit = content_audit || jsonb_build_object(
+         set content_audit = jsonb_merge(content_audit, jsonb_build_object(
                'progress', $3::jsonb,
                'result', $4::jsonb,
                'executionErrors', $5::jsonb,
                'usage', $6::jsonb,
                'checkpoint', $7::jsonb
-             ),
+             )),
              updated_at = clock_timestamp()
          where id = $1
            and content_audit->>'status' = 'checking'
            and content_audit->>'startedAt' = $2`
       : `update geo_projects
-         set content_audit = content_audit || jsonb_build_object(
+         set content_audit = jsonb_merge(content_audit, json_object(
                'progress', $3::jsonb,
                'result', $4::jsonb,
                'executionErrors', $5::jsonb,
                'usage', $6::jsonb
-             ),
+             )),
              updated_at = clock_timestamp()
          where id = $1
            and content_audit->>'status' = 'checking'
@@ -1639,10 +1582,10 @@ export async function finishContentAudit(
                and jsonb_typeof(coalesce(content_audit_history, '[]'::jsonb)) = 'array'
                and not exists (
                  select 1
-                 from jsonb_array_elements(coalesce(content_audit_history, '[]'::jsonb)) as prior
-                 where prior->>'startedAt' = $3::jsonb->>'startedAt'
+                 from json_each(coalesce(content_audit_history, '[]')) as prior
+                 where prior.value ->> 'startedAt' = $3 ->> 'startedAt'
                )
-               then coalesce(content_audit_history, '[]'::jsonb) || jsonb_build_array($3::jsonb)
+               then jsonb_concat(coalesce(content_audit_history, '[]'), json_array($3))
              else coalesce(content_audit_history, '[]'::jsonb)
            end,
            updated_at = clock_timestamp()
@@ -1952,7 +1895,7 @@ export async function clearTechnicalAuditSnapshot(
   id: string,
   websiteUrl: string,
   diagnosisRunId: string,
-  queryClient?: Pick<PoolClient, 'query'>,
+  queryClient?: SqliteQueryClient,
 ): Promise<boolean> {
   if (typeof diagnosisRunId !== 'string' || !diagnosisRunId.trim()) return false
   const executor = queryClient ?? databasePool()
@@ -1994,7 +1937,7 @@ export async function saveTechnicalAuditSnapshot(
   websiteUrl: string,
   snapshot: TechnicalAuditSnapshot,
   diagnosisRunId: string,
-  queryClient?: Pick<PoolClient, 'query'>,
+  queryClient?: SqliteQueryClient,
 ): Promise<boolean> {
   if (typeof diagnosisRunId !== 'string' || !diagnosisRunId.trim()) return false
   const executor = queryClient ?? databasePool()
@@ -2025,43 +1968,9 @@ export async function saveTechnicalAuditSnapshot(
   return result.rowCount === 1
 }
 
-/** Hold a session advisory lock only; callers must not open a transaction
- * across network requests.  Finally always releases the lock before the
- * pooled client is returned. */
-export async function withTechnicalAuditLock<T>(id: string, operation: (client: PoolClient) => Promise<T>): Promise<T> {
-  const client = await databasePool().connect()
-  const key = `technical-audit:${id}`
-  let acquired = false
-  let operationFailure: unknown
-  try {
-    const result = await client.query<{ locked: boolean }>(
-      'select pg_try_advisory_lock(hashtextextended($1, 0)) as locked',
-      [key],
-    )
-    acquired = Boolean(result.rows[0]?.locked)
-    if (!acquired) throw new Error('technical_audit_in_progress')
-    try {
-      return await operation(client)
-    } catch (error) {
-      operationFailure = error
-      throw error
-    }
-  } finally {
-    let unlockFailure: Error | null = null
-    try {
-      if (acquired) await client.query('select pg_advisory_unlock(hashtextextended($1, 0))', [key])
-    } catch (error) {
-      unlockFailure = error instanceof Error ? error : new Error('technical_audit_lock_release_failed')
-    }
-    if (unlockFailure) {
-      // Do not return a session with a potentially-held advisory lock to the
-      // pool.  pg's release(error) destroys the underlying client.
-      client.release(unlockFailure)
-      if (!operationFailure) throw unlockFailure
-    } else {
-      client.release()
-    }
-  }
+/** 进程内互斥（替代 pg advisory lock）；调用方不得跨网络请求持有。 */
+export async function withTechnicalAuditLock<T>(id: string, operation: (client: SqliteQueryClient) => Promise<T>): Promise<T> {
+  return withNamedLock(`technical-audit:${id}`, () => operation(databasePool()), 'technical_audit_in_progress')
 }
 
 function diagnosisRunFromRow(row: Record<string, unknown>): DiagnosisRun {
@@ -2097,8 +2006,8 @@ function diagnosisAnswerFromRow(row: Record<string, unknown>): DiagnosisAnswer {
     answerText: (row.answer_text as string | null) ?? null,
     citationUrls: citationUrlsFromValue(row.citation_urls),
     responseModel: (row.response_model as string | null) ?? null,
-    recommended: typeof row.recommended === 'boolean' ? row.recommended : null,
-    officialCitation: typeof row.official_citation === 'boolean' ? row.official_citation : null,
+    recommended: row.recommended === true || row.recommended === 1 ? true : row.recommended === false || row.recommended === 0 ? false : null,
+    officialCitation: row.official_citation === true || row.official_citation === 1 ? true : row.official_citation === false || row.official_citation === 0 ? false : null,
     error: (row.error as string | null) ?? null,
     startedAt: nullableIso(row.started_at),
     completedAt: nullableIso(row.completed_at),
@@ -2137,7 +2046,7 @@ function articleFromRow(row: Record<string, unknown>): ProjectArticle {
   }
 }
 
-async function getArticleBatches(id: string, queryClient?: Pick<PoolClient, 'query'>): Promise<ArticleBatch[]> {
+async function getArticleBatches(id: string, queryClient?: SqliteQueryClient): Promise<ArticleBatch[]> {
   const result = await (queryClient ?? databasePool()).query(
     `select b.id as batch_id, b.project_id, b.requested_model, b.response_model, b.generated_at as batch_generated_at,
             a.id, a.batch_id as article_batch_id, a.project_id as article_project_id, a.title,
@@ -2202,7 +2111,7 @@ async function getArticleBatches(id: string, queryClient?: Pick<PoolClient, 'que
   return [...batches.values()]
 }
 
-async function getDiagnosisAnswers(runId: string, queryClient?: Pick<PoolClient, 'query'>): Promise<DiagnosisAnswer[]> {
+async function getDiagnosisAnswers(runId: string, queryClient?: SqliteQueryClient): Promise<DiagnosisAnswer[]> {
   const answerResult = await (queryClient ?? databasePool()).query(
     `select position, question, status, answer_text, citation_urls, response_model,
             recommended, official_citation, error, started_at, completed_at
@@ -2214,7 +2123,7 @@ async function getDiagnosisAnswers(runId: string, queryClient?: Pick<PoolClient,
   return answerResult.rows.map(diagnosisAnswerFromRow)
 }
 
-export async function getInitialDiagnosis(id: string, queryClient?: Pick<PoolClient, 'query'>): Promise<InitialDiagnosis> {
+export async function getInitialDiagnosis(id: string, queryClient?: SqliteQueryClient): Promise<InitialDiagnosis> {
   const runResult = await (queryClient ?? databasePool()).query(
     `select id, run_type, status, requested_model, round_number, published_article_count,
             started_at, completed_at, summary_analysis, summary_model, summary_error,
@@ -2414,7 +2323,7 @@ export async function markInitialDiagnosisReportRefreshFailed(
  */
 export async function getMonitoringDeliveryReportMetadata(
   projectId: string,
-  queryClient?: Pick<PoolClient, 'query'>,
+  queryClient?: SqliteQueryClient,
 ): Promise<DeliveryReportMetadata> {
   const result = await (queryClient ?? databasePool()).query<{
     source_run_id: unknown
@@ -2599,7 +2508,7 @@ export async function getMonitoringDeliveryReportPdf(projectId: string): Promise
   }
 }
 
-export async function getMonitoringRuns(id: string, queryClient?: Pick<PoolClient, 'query'>): Promise<MonitoringRun[]> {
+export async function getMonitoringRuns(id: string, queryClient?: SqliteQueryClient): Promise<MonitoringRun[]> {
   const runResult = await (queryClient ?? databasePool()).query(
     `select id, run_type, status, requested_model, round_number, published_article_count,
             started_at, completed_at, summary_analysis, summary_model, summary_error,
@@ -2618,7 +2527,7 @@ export async function getMonitoringRuns(id: string, queryClient?: Pick<PoolClien
   return runs
 }
 
-export async function getProjectDetail(id: string, queryClient?: Pick<PoolClient, 'query'>): Promise<ProjectDetail | null> {
+export async function getProjectDetail(id: string, queryClient?: SqliteQueryClient): Promise<ProjectDetail | null> {
   const project = await getProject(id, queryClient)
   if (!project) return null
   return {
@@ -4186,7 +4095,7 @@ function articleProjectPreflight(project: Project, initialDiagnosis: InitialDiag
   }
 }
 
-function isPoolClient(value: unknown): value is PoolClient {
+function isSqliteQueryClient(value: unknown): value is SqliteQueryClient {
   return Boolean(value && typeof value === 'object' && typeof (value as { query?: unknown }).query === 'function')
 }
 
@@ -4202,43 +4111,9 @@ function articleRowSelect(alias?: string): string {
           ${prefix}confirmed_at`
 }
 
-/**
- * Keep title generation serialized per project without holding a transaction
- * across the provider request. The same leased session is passed to the
- * callback so a max-four pool cannot deadlock while the lock is held.
- */
-export async function withArticleTitleGenerationLock<T>(projectId: string, operation: (client: PoolClient) => Promise<T>): Promise<T> {
-  const client = await databasePool().connect()
-  const key = `article-title-generation:${projectId}`
-  let acquired = false
-  let operationFailure: unknown
-  try {
-    const result = await client.query<{ locked: boolean }>(
-      'select pg_try_advisory_lock(hashtextextended($1, 0)) as locked',
-      [key],
-    )
-    acquired = Boolean(result.rows[0]?.locked)
-    if (!acquired) throw new Error('article_generation_in_progress')
-    try {
-      return await operation(client)
-    } catch (error) {
-      operationFailure = error
-      throw error
-    }
-  } finally {
-    let unlockFailure: Error | null = null
-    try {
-      if (acquired) await client.query('select pg_advisory_unlock(hashtextextended($1, 0))', [key])
-    } catch (error) {
-      unlockFailure = error instanceof Error ? error : new Error('article_generation_lock_release_failed')
-    }
-    if (unlockFailure) {
-      client.release(unlockFailure)
-      if (!operationFailure) throw unlockFailure
-    } else {
-      client.release()
-    }
-  }
+/** 进程内互斥（替代 pg advisory lock）：同一项目的标题生成串行化。 */
+export async function withArticleTitleGenerationLock<T>(projectId: string, operation: (client: SqliteQueryClient) => Promise<T>): Promise<T> {
+  return withNamedLock(`article-title-generation:${projectId}`, () => operation(databasePool()), 'article_generation_in_progress')
 }
 
 export async function saveArticleBatch(
@@ -4309,7 +4184,7 @@ export function saveArticleTitles(
   responseModel: string | null,
   titles: GeneratedArticleTitle[],
   sourceDiagnosisRunId: string | null,
-  queryClient?: PoolClient,
+  queryClient?: SqliteQueryClient,
   expectedContentAuditStartedAt?: string,
   expectedProjectUpdatedAt?: string,
   aiTaskId?: string,
@@ -4322,7 +4197,7 @@ export function saveArticleTitles(
   titles: GeneratedArticleTitle[],
   websiteCacheExpectation: ArticleWebsiteCacheExpectation,
   sourceDiagnosisRunId: string | null,
-  queryClient?: PoolClient,
+  queryClient?: SqliteQueryClient,
   expectedContentAuditStartedAt?: string,
   expectedProjectUpdatedAt?: string,
   aiTaskId?: string,
@@ -4333,8 +4208,8 @@ export async function saveArticleTitles(
   responseModel: string | null,
   titles: GeneratedArticleTitle[],
   sourceOrWebsiteExpectation: string | null | ArticleWebsiteCacheExpectation,
-  queryClientOrSource?: PoolClient | string | null,
-  expectedContentAuditOrClient?: string | PoolClient,
+  queryClientOrSource?: SqliteQueryClient | string | null,
+  expectedContentAuditOrClient?: string | SqliteQueryClient,
   expectedProjectOrAudit?: string,
   aiTaskIdOrProject?: string,
   legacyAiTaskId?: string,
@@ -4351,8 +4226,8 @@ export async function saveArticleTitles(
     ? typeof queryClientOrSource === 'string' ? queryClientOrSource : null
     : sourceOrWebsiteExpectation
   const queryClient = legacyCall
-    ? isPoolClient(expectedContentAuditOrClient) ? expectedContentAuditOrClient : undefined
-    : isPoolClient(queryClientOrSource) ? queryClientOrSource : undefined
+    ? isSqliteQueryClient(expectedContentAuditOrClient) ? expectedContentAuditOrClient : undefined
+    : isSqliteQueryClient(queryClientOrSource) ? queryClientOrSource : undefined
   const expectedContentAuditStartedAt = legacyCall
     ? expectedProjectOrAudit
     : typeof expectedContentAuditOrClient === 'string' ? expectedContentAuditOrClient : undefined

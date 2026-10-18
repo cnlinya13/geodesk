@@ -6,7 +6,7 @@
 Browser (React/Vite)
         │ same-origin /api proxy
 Node.js HTTP API (server/index.ts)
-        ├── PostgreSQL pool and migration reader
+        ├── SQLite pool (node:sqlite) and migration reader
         ├── server-side model client (real mode only)
         ├── deterministic website/technical/content services
         └── persisted AI-task state and diagnosis/article workflows
@@ -16,7 +16,7 @@ The regular development runtime listens only on `127.0.0.1:5173` (Web) and `127.
 
 ## Data boundary
 
-The PostgreSQL database is expected to be named `geodesk`. `server/db.ts` loads an optional root `.env.local`, then reads the complete process environment. Its migration directory is resolved from `import.meta.url`, so migration and API commands do not depend on the shell working directory. `checkDatabase()` rejects another database name before schema checks continue.
+The SQLite database file lives at `DATABASE_PATH` (default `./data/geodesk.db`), opened in WAL mode. `server/db.ts` loads an optional root `.env.local`, then reads the complete process environment. Its migration directory is resolved from `import.meta.url`, so migration and API commands do not depend on the shell working directory.
 
 The browser does not receive database credentials or model keys. Real model calls are server-side and use the configured provider endpoint only after the provider client validates it. Website reads and content checks must retain their existing URL validation and SSRF protections.
 
@@ -26,7 +26,7 @@ The browser does not receive database credentials or model keys. Real model call
 
 ## Persistence and tasks
 
-Regular mode persists projects, question sets, answers, articles, audits and AI-task lifecycle rows in PostgreSQL. A request accepts a long operation as a task and the UI observes its persisted state. A service restart must not turn a partial result into a successful result. The synthetic demo intentionally does not claim those persistence guarantees: it is a bounded local fixture for first-run evaluation.
+Regular mode persists projects, question sets, answers, articles, audits and AI-task lifecycle rows in SQLite. A request accepts a long operation as a task and the UI observes its persisted state. A service restart must not turn a partial result into a successful result. The synthetic demo intentionally does not claim those persistence guarantees: it is a bounded local fixture for first-run evaluation.
 
 ## Extension boundary
 

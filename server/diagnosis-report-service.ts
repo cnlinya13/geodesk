@@ -1,4 +1,4 @@
-import type { PoolClient } from 'pg'
+import type { SqliteQueryClient } from './sqlite-pool.ts'
 import { computeOfficialCitation } from './diagnosis-core.ts'
 import { databasePool } from './db.ts'
 import {
@@ -46,7 +46,7 @@ export type DiagnosisReportServiceOptions = {
 
 export class DiagnosisReportServiceError extends Error {}
 
-type QueryExecutor = Pick<PoolClient, 'query'>
+type QueryExecutor = SqliteQueryClient
 
 type ProjectRow = {
   id: unknown

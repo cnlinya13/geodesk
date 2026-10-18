@@ -1,8 +1,6 @@
 -- Project workflow guard compatibility for the profile/question lock rules.
 -- The columns are additive so this migration is safe for databases that were
 -- created from the earlier baseline migrations.
-ALTER TABLE geo_projects
-  ADD COLUMN IF NOT EXISTS website_locked_at TIMESTAMPTZ;
 
 -- Empty strings are equivalent to an omitted optional website.  Converting
 -- legacy blanks to NULL keeps the one-time post-confirmation fill predicate
@@ -10,7 +8,7 @@ ALTER TABLE geo_projects
 UPDATE geo_projects
    SET website_url = NULL
  WHERE website_url IS NOT NULL
-   AND length(btrim(website_url)) = 0;
+   AND length(trim(website_url)) = 0;
 
 -- Existing confirmed projects already have an immutable website when one was
 -- saved.  Backfill only the lock marker; never rewrite the URL or any output.

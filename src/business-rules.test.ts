@@ -23,12 +23,7 @@ describe('shared business rules', () => {
 
   it('keeps persisted question-position migration bounds aligned with QUESTION_TOTAL', () => {
     const migrationFiles = [
-      '002_website_questions.sql',
-      '003_initial_diagnosis.sql',
-      '005_articles.sql',
-      '006_monitoring_and_article_questions.sql',
-      '007_fix_question_positions_validator.sql',
-      '012_article_targets_and_dedup.sql',
+      '001_geo_projects.sql',
     ]
     const sql = migrationFiles
       .map((name) => readFileSync(fileURLToPath(new URL(`../server/migrations/${name}`, import.meta.url)), 'utf8'))

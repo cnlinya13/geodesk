@@ -32,7 +32,7 @@ const pgMock = vi.hoisted(() => {
   return { state, Pool: FakePool, abortAiTaskControllersById: vi.fn() }
 })
 
-vi.mock('pg', () => ({ Pool: pgMock.Pool }))
+vi.mock('./sqlite-pool.ts', () => ({ SqlitePool: pgMock.Pool }))
 vi.mock('./ai-task-runtime.ts', () => ({ abortAiTaskControllersById: pgMock.abortAiTaskControllersById }))
 
 const db = await import('./db.ts')

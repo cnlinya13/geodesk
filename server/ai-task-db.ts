@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import type { PoolClient } from 'pg'
+import type { SqliteQueryClient } from './sqlite-pool.ts'
 import { databasePool } from './db.ts'
 import { QUESTION_TOTAL } from '../src/business-rules.ts'
 
@@ -183,18 +183,18 @@ export async function completeAiTask(taskId: string, result: Record<string, unkn
                     end
                 and not exists (
                   select 1
-                  from jsonb_array_elements(
+                  from json_each(
                     case
-                      when jsonb_typeof(coalesce(content_audit_history, '[]'::jsonb)) = 'array'
-                        then coalesce(content_audit_history, '[]'::jsonb)
-                      else '[]'::jsonb
+                      when json_type(coalesce(content_audit_history, '[]')) = 'array'
+                        then coalesce(content_audit_history, '[]')
+                      else '[]'
                     end
                   ) as prior
-                  where prior->>'startedAt' = content_audit->>'startedAt'
+                  where prior.value ->> 'startedAt' = content_audit ->> 'startedAt'
                 )
-                 then coalesce(content_audit_history, '[]'::jsonb) || jsonb_build_array(
-                   content_audit - 'checkpoint' - 'previousResult' - 'previousCompletedAt'
-                 )
+                 then jsonb_concat(coalesce(content_audit_history, '[]'), json_array(
+                   json_remove(content_audit, '$.checkpoint', '$.previousResult', '$.previousCompletedAt')
+                 ))
                else coalesce(content_audit_history, '[]'::jsonb)
              end,
              content_audit_task_id = null,
@@ -233,7 +233,7 @@ export async function failAiTask(taskId: string, error: unknown, result?: Record
 }
 
 /** Delete all task rows for a reset inside the caller's existing transaction. */
-export async function deleteAiTasksForProject(projectId: string, client?: Pick<PoolClient, 'query'>): Promise<number> {
+export async function deleteAiTasksForProject(projectId: string, client?: SqliteQueryClient): Promise<number> {
   const executor = client ?? databasePool()
   const result = await executor.query('delete from geo_ai_tasks where project_id = $1', [projectId])
   return result.rowCount ?? 0
@@ -251,7 +251,7 @@ type StartupCleanupCounts = {
 }
 
 /** Reconcile project-level initial-diagnosis aggregates after deleting a run. */
-async function reconcileInitialDiagnosis(projectId: string, client: Pick<PoolClient, 'query'>): Promise<void> {
+async function reconcileInitialDiagnosis(projectId: string, client: SqliteQueryClient): Promise<void> {
   const completed = await client.query<{
     started_at: Date | string | null
     completed_at: Date | string | null
@@ -492,7 +492,7 @@ export async function clearIncompleteAiTasksOnStartup(): Promise<StartupCleanupC
       } else if (task.kind === 'content_audit') {
         const updated = await client.query(
           `update geo_projects
-           set content_audit = (content_audit || jsonb_build_object(
+           set content_audit = json_remove(jsonb_merge(content_audit, jsonb_build_object(
                  'status', 'failed',
                  'completedAt', to_jsonb(clock_timestamp()),
                  'result', null,
@@ -501,7 +501,7 @@ export async function clearIncompleteAiTasksOnStartup(): Promise<StartupCleanupC
                    'stage', 'restart',
                    'message', '服务重启，未完成的官网内容检查已清理'
                  ))
-               )) - 'checkpoint',
+               )), '$.checkpoint'),
                content_audit_task_id = null,
                updated_at = clock_timestamp()
            where id = $1 and content_audit_task_id = $2`,
@@ -519,14 +519,13 @@ export async function clearIncompleteAiTasksOnStartup(): Promise<StartupCleanupC
 
     const legacyAudits = await client.query(
       `update geo_projects
-       set content_audit = (content_audit
-             || jsonb_build_object(
+       set content_audit = json_remove(jsonb_merge(content_audit, jsonb_build_object(
                   'status', 'failed',
                   'completedAt', to_jsonb(clock_timestamp()),
                   'result', null,
                   'error', '服务重启，未完成的官网内容检查已清理',
                   'executionErrors', jsonb_build_array(jsonb_build_object('stage', 'restart', 'message', '服务重启，未完成的官网内容检查已清理'))
-                )) - 'checkpoint',
+                )), '$.checkpoint'),
            content_audit_task_id = null,
            updated_at = clock_timestamp()
        where content_audit_task_id is null and content_audit->>'status' = 'checking'`,

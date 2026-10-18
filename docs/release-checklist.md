@@ -21,7 +21,7 @@
 - [ ] `npm run build`
 - [ ] `npm run smoke:demo`
 - [ ] `npm run check:public`
-- [ ] If and only if an independent PostgreSQL instance is confirmed: `npm run migrate:db` followed by `npm run check:db`.
+- [ ] `npm run migrate:db` followed by `npm run check:db` (SQLite, against a scratch `DATABASE_PATH`).
 - [ ] Record whether gitleaks or an equivalent full history scanner was available; the public-tree scan is not a history audit.
 
 ## Release hygiene
