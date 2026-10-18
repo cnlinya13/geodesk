@@ -36,9 +36,11 @@ import {
 import { copyArticleContent } from './article-copy'
 import { ForceChangePasswordPage, LoginPage, UserMenu } from './components/Auth'
 import { ModelSettingsPage } from './components/ModelSettings'
+import { RunCompareModal } from './components/RunCompareModal'
 import { Button, Field, GlobalHeader, Icon, IconButton, MetricCard, Modal, OperationBar, OperationFeedback, PhaseNav, stages, StatusBadge } from './components/UI'
 import { TechnicalAuditPanel } from './components/TechnicalAuditPanel'
 import { ContentAuditPanel } from './components/ContentAuditPanel'
+import { compareDiagnosisRuns, findPreviousCompletedRun } from './run-compare'
 import { apiErrorMessage, localizeServerMessage, resolveUiMessage, taskErrorMessage, translate, uiMessage, useI18n, type Locale, type UiMessage } from './i18n'
 import { buildDeliveryReportFilename, prepareDeliveryReportPdf } from './delivery-report-pdf'
 import { DeliveryReportSheet } from './delivery-report-sheet'
@@ -2337,6 +2339,7 @@ export function MonitoringDashboard({ project, busy, actionError, progress, onSt
   const [exportError, setExportError] = useState<UiMessage>('')
   const [reportPdfState, setReportPdfState] = useState<MonitoringDeliveryReportPdfState>('idle')
   const [reportPdfError, setReportPdfError] = useState<UiMessage>('')
+  const [compareOpen, setCompareOpen] = useState(false)
   const reportSheetRef = useRef<HTMLElement | null>(null)
   const reportVersionRef = useRef<string | null>(null)
   const reportStartedKeyRef = useRef<string | null>(null)
@@ -2376,6 +2379,17 @@ export function MonitoringDashboard({ project, busy, actionError, progress, onSt
   }, [activeMonitoringRunId, runs])
 
   const selectedRun = runs.find((run) => run.id === selectedRunId) ?? runs[0] ?? null
+  const selectedAnswers = selectedRun?.answers ?? []
+  const previousCompareRun = selectedRun && selectedRun.status === 'completed'
+    ? findPreviousCompletedRun(
+      runs.map((run) => ({ run, answers: run.answers })),
+      selectedRun.id,
+      project.initialDiagnosis?.run ? { run: project.initialDiagnosis.run, answers: project.initialDiagnosis.answers ?? [] } : null,
+    )
+    : null
+  const runComparison = compareOpen && selectedRun && previousCompareRun
+    ? compareDiagnosisRuns({ run: selectedRun, answers: selectedAnswers }, previousCompareRun)
+    : null
   const latestCompletedForMetrics = runs
     .filter((run) => run.status === 'completed')
     .slice()
@@ -2389,7 +2403,6 @@ export function MonitoringDashboard({ project, busy, actionError, progress, onSt
   const reportBusy = busy || reportPdfState === 'generating' || reportPdfState === 'saving'
     || (reportNeedsPreparation && !reportErrorState)
   const canExportDeliveryReport = hasSavedDeliveryReport && !reportBusy
-  const selectedAnswers = selectedRun?.answers ?? []
   const liveProgress = busy ? progress : null
   const completedCount = liveProgress?.completedCount ?? selectedAnswers.filter((answer) => answer.status === 'success').length
   const failedCount = liveProgress?.failedCount ?? selectedAnswers.filter((answer) => answer.status === 'failed').length
@@ -2559,6 +2572,7 @@ export function MonitoringDashboard({ project, busy, actionError, progress, onSt
               <div className="monitoring-operation-actions">
                 {deliveryReportError ? <Button variant="secondary" onClick={retryDeliveryReport}>{t('monitoring.retryDelivery')}</Button> : null}
                 {exportState === 'error' ? <Button variant="secondary" onClick={() => void exportDeliveryReport()}>{t('monitoring.retryDownload')}</Button> : null}
+                <Button variant="secondary" icon={<Icon name="git-compare-arrows" size={16} />} disabled={!previousCompareRun} onClick={() => setCompareOpen(true)} title={!previousCompareRun ? t('compare.noPrevious') : undefined}>{t('monitoring.comparePrevious')}</Button>
                 <Button variant="secondary" icon={<Icon name="download" size={16} />} disabled={!canExportDeliveryReport || exportState === 'downloading'} onClick={() => void exportDeliveryReport()}>{exportState === 'downloading' ? t('common.downloading') : t('monitoring.exportDelivery')}</Button>
               </div>
             )}
@@ -2597,6 +2611,7 @@ export function MonitoringDashboard({ project, busy, actionError, progress, onSt
         </aside>
       </div>
       {latestReportRun && reportNeedsPreparation ? <div className="delivery-report-export-source" aria-hidden="true"><DeliveryReportSheet ref={reportSheetRef} project={project} run={latestReportRun} /></div> : null}
+      {runComparison ? <RunCompareModal comparison={runComparison} onClose={() => setCompareOpen(false)} /> : null}
     </section>
   )
 }

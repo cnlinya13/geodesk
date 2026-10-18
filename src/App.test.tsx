@@ -2332,6 +2332,63 @@ describe('GEO Desk project entry', () => {
     expect(metrics).not.toContain('最近一次成功监测')
   })
 
+  it('enables 对比上一轮 when a previous completed round exists', () => {
+    const answers = Array.from({ length: 20 }, (_, index) => ({
+      position: index + 1,
+      question: `监测问题${index + 1}`,
+      status: 'success' as const,
+      answerText: `监测回答${index + 1}`,
+      citationUrls: [],
+      responseModel: 'monitor-model',
+      recommended: index < 8,
+      officialCitation: index < 5,
+      error: null,
+      startedAt: '2026-09-04T01:00:00.000Z',
+      completedAt: '2026-09-04T01:01:00.000Z',
+    }))
+    const run = (id: string, roundNumber: number) => ({
+      id, runType: 'monitoring' as const, roundNumber, status: 'completed' as const, requestedModel: 'monitor-model',
+      publishedArticleCount: 0, startedAt: '2026-09-04T01:00:00.000Z', completedAt: '2026-09-04T01:01:00.000Z',
+      summaryAnalysis: null, summaryModel: 'monitor-model', summaryError: null,
+      recommendationRate: 0.4, officialCitationRate: 0.25, answers,
+    })
+    const project = {
+      id: 'compare-enabled', companyName: '对比公司', websiteUrl: 'https://example.test',
+      initialRecommendationRate: 0.25, initialOfficialCitationRate: 0.2,
+      articleBatches: [], questions: [],
+      monitoringRuns: [run('monitor-2', 2), run('monitor-1', 1)],
+    } as unknown as ProjectDetail
+    const html = renderToStaticMarkup(<MonitoringDashboard project={project} busy={false} actionError="" progress={null} onStart={() => undefined} />)
+    // 第二轮选中，上一轮为第一轮：按钮可用且未禁用
+    expect(html).toContain('对比上一轮')
+    const buttonIndex = html.indexOf('对比上一轮')
+    const buttonTag = html.slice(html.lastIndexOf('<button', buttonIndex), buttonIndex)
+    expect(buttonTag).not.toContain('disabled')
+  })
+
+  it('disables 对比上一轮 when there is no previous completed round', () => {
+    const project = {
+      id: 'compare-disabled', companyName: '对比公司', websiteUrl: 'https://example.test',
+      initialRecommendationRate: 0.25, initialOfficialCitationRate: 0.2,
+      articleBatches: [], questions: [],
+      monitoringRuns: [
+        {
+          id: 'monitor-1', runType: 'monitoring' as const, roundNumber: 1, status: 'completed' as const,
+          requestedModel: 'monitor-model', publishedArticleCount: 0,
+          startedAt: '2026-09-04T01:00:00.000Z', completedAt: '2026-09-04T01:01:00.000Z',
+          summaryAnalysis: null, summaryModel: 'monitor-model', summaryError: null,
+          recommendationRate: 0.4, officialCitationRate: 0.25, answers: [],
+        },
+      ],
+    } as unknown as ProjectDetail
+    const html = renderToStaticMarkup(<MonitoringDashboard project={project} busy={false} actionError="" progress={null} onStart={() => undefined} />)
+    expect(html).toContain('对比上一轮')
+    const buttonIndex = html.indexOf('对比上一轮')
+    const buttonTag = html.slice(html.lastIndexOf('<button', buttonIndex), buttonIndex)
+    expect(buttonTag).toContain('disabled')
+    expect(html).toContain('暂无可对比的上一轮')
+  })
+
   it('reflects article confirmation and a new completed run from the updated project snapshot without mutating the old one', () => {
     const article = {
       id: 'article-1', projectId: 'monitoring-update', batchId: 'batch-1', title: '文章', publishStatus: 'pending' as const,

@@ -1,7 +1,7 @@
 {
   "name": "geodesk",
   "private": true,
-  "version": "0.4.0",
+  "version": "0.1.2",
   "license": "MIT",
   "type": "module",
   "engines": {
@@ -28,6 +28,7 @@
     "lucide-react": "^0.468.0",
     "microdata-rdf-streaming-parser": "^3.0.0",
     "node-html-parser": "^7.1.0",
+    "pg": "^8.23.0",
     "rdfa-streaming-parser": "^3.0.2",
     "react": "19.2.8",
     "react-dom": "19.2.8",
@@ -37,6 +38,7 @@
   },
   "devDependencies": {
     "@types/node": "^26.4.1",
+    "@types/pg": "^8.23.1",
     "@types/react": "19.2.7",
     "@types/react-dom": "19.2.3",
     "@types/sanitize-html": "^2.16.1",

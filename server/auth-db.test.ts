@@ -29,7 +29,7 @@ const pgMock = vi.hoisted(() => {
   return { state, Pool: FakePool }
 })
 
-vi.mock('./sqlite-pool.ts', () => ({ SqlitePool: pgMock.Pool }))
+vi.mock('pg', () => ({ Pool: pgMock.Pool }))
 
 const sampleRow = {
   id: '7',

@@ -7,6 +7,7 @@ import {
   Copy,
   Download,
   FileCheck,
+  GitCompareArrows,
   Globe,
   LayoutDashboard,
   Link,
@@ -38,6 +39,7 @@ export type IconName =
   | 'chevron-right' | 'arrow-right' | 'x' | 'copy' | 'circle-check' | 'pencil'
   | 'search' | 'play' | 'refresh-cw' | 'download' | 'badge-check' | 'ruler'
   | 'file-check' | 'lock-keyhole' | 'lock-keyhole-open' | 'message-square' | 'building-2' | 'target' | 'list-checks' | 'shield-check' | 'trash-2'
+  | 'git-compare-arrows'
 
 const iconComponents: Record<IconName, LucideIcon> = {
   'layout-dashboard': LayoutDashboard,
@@ -60,6 +62,7 @@ const iconComponents: Record<IconName, LucideIcon> = {
   'badge-check': BadgeCheck,
   ruler: Ruler,
   'file-check': FileCheck,
+  'git-compare-arrows': GitCompareArrows,
   'shield-check': ShieldCheck,
   'lock-keyhole': LockKeyhole,
   'lock-keyhole-open': LockKeyholeOpen,

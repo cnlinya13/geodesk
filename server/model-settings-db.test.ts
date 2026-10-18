@@ -14,7 +14,7 @@ const pgMock = vi.hoisted(() => {
   }
   return { state, Pool: FakePool }
 })
-vi.mock('./sqlite-pool.ts', () => ({ SqlitePool: pgMock.Pool }))
+vi.mock('pg', () => ({ Pool: pgMock.Pool }))
 
 // db.ts 的 databasePool() 用懒加载单例，mock pg.Pool 后需要清掉缓存的单例
 vi.mock('./db.ts', async (importOriginal) => {
