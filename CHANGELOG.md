@@ -4,7 +4,7 @@
 
 ## 0.4.0 - 2026-10-18
 
-- 数据库从 PostgreSQL 切换为 SQLite（Node 24 内置 `node:sqlite`，零新增依赖）：连接配置改为 `DATABASE_PATH`/`DATA_DIR` 文件路径，WAL 模式；21 个 migration 重写为 SQLite 方言（从空库开始，无需数据迁移）；`pg` 依赖与 compose 文件已移除。`npm run migrate:db` / `npm run check:db` / 全部 793 个测试 / 构建均验证通过。
+- 数据库改走 `DbAdapter` 适配器接入（`server/db-adapter.ts`）：业务代码只依赖接口，查询统一 pg 风格 `$N` 占位符，方言翻译下沉到适配器；当前内置实现为 SQLite（Node 24 内置 `node:sqlite`，零新增依赖），连接配置改为 `DATABASE_PATH`/`DATA_DIR` 文件路径，WAL 模式；21 个 migration 重写为 SQLite 方言（从空库开始，无需数据迁移）；`pg` 依赖与 compose 文件已移除。换其他数据库按 `docs/database-adapter.md` 自行实现适配器（`DB_KIND=external` + `DB_ADAPTER_PATH`），无需改业务代码。已验证：SQLite（内置）、PostgreSQL 16、MySQL 8.0、MariaDB 11（后三者经 scratch 适配器实测 migration/CRUD 全过）。`npm run migrate:db` / `npm run check:db` / 全部 793 个测试 / 构建均验证通过。
 
 ## 0.3.2 - 2026-10-18
 

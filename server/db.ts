@@ -4,7 +4,7 @@ import { existsSync } from 'node:fs'
 import { readdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { SqlitePool, type SqliteQueryClient, withNamedLock } from './sqlite-pool.ts'
+import { createAdapter, withNamedLock, type DbAdapter, type DbClient } from './db-adapter.ts'
 import {
   type GeneratedQuestion,
   type QuestionCategory,
@@ -80,7 +80,7 @@ if (existsSync(envFile)) {
   }
 }
 
-let pool: SqlitePool | undefined
+let pool: DbAdapter | undefined
 
 export type Project = {
   id: string
@@ -255,9 +255,9 @@ function databaseFileLabel(): string {
   return 'sqlite'
 }
 
-export function databasePool(): SqlitePool {
+export function databasePool(): DbAdapter {
   if (!pool) {
-    pool = new SqlitePool()
+    pool = createAdapter()
   }
 
   return pool
@@ -732,8 +732,8 @@ export async function runMigrations(): Promise<string[]> {
 
   await activePool.query(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
-      version TEXT PRIMARY KEY,
-      applied_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+      version VARCHAR(255) PRIMARY KEY,
+      applied_at TEXT NOT NULL
     )
   `)
 
@@ -749,7 +749,7 @@ export async function runMigrations(): Promise<string[]> {
     try {
       await client.query('BEGIN')
       await client.execScript(sql)
-      await client.query('insert into schema_migrations (version) values ($1)', [file])
+      await client.query('insert into schema_migrations (version, applied_at) values ($1, $2)', [file, new Date().toISOString()])
       await client.query('COMMIT')
       applied.push(file)
     } catch (error) {
@@ -789,7 +789,7 @@ export async function listProjects(search = ''): Promise<Project[]> {
   return result.rows.map(projectFromRow)
 }
 
-export async function getProject(id: string, queryClient?: SqliteQueryClient): Promise<Project | null> {
+export async function getProject(id: string, queryClient?: DbClient): Promise<Project | null> {
   const executor = queryClient ?? databasePool()
   const result = await executor.query(
     `select p.*,
@@ -815,7 +815,7 @@ export async function getProject(id: string, queryClient?: SqliteQueryClient): P
   return result.rows[0] ? projectFromRow(result.rows[0]) : null
 }
 
-async function getQuestions(id: string, queryClient?: SqliteQueryClient): Promise<Question[]> {
+async function getQuestions(id: string, queryClient?: DbClient): Promise<Question[]> {
   const result = await (queryClient ?? databasePool()).query(
     `select id, position, question, generated_at, category, is_locked
      from geo_project_questions
@@ -836,7 +836,7 @@ function websitePageFromRow(row: Record<string, unknown>): WebsitePageResult {
   }
 }
 
-export async function getWebsitePages(id: string, queryClient?: SqliteQueryClient): Promise<WebsitePageResult[]> {
+export async function getWebsitePages(id: string, queryClient?: DbClient): Promise<WebsitePageResult[]> {
   const executor = queryClient ?? databasePool()
   const result = await executor.query(
     `select url, title, body_text, status, error
@@ -1256,7 +1256,7 @@ function latestContentAuditHistory(value: unknown): ContentAuditRecord | null {
 /** Read the one current content-audit record; malformed JSON is unavailable. */
 export async function getContentAuditRecord(
   id: string,
-  queryClient?: SqliteQueryClient,
+  queryClient?: DbClient,
 ): Promise<ContentAuditReadRecord | null> {
   const result = await (queryClient ?? databasePool()).query<{ content_audit: unknown; content_audit_history: unknown }>(
     `select content_audit, content_audit_history
@@ -1320,7 +1320,7 @@ function contentAuditGenerationRoundMatches(record: ContentAuditRecord | null, s
 export async function assertContentAuditCurrent(
   id: string,
   startedAt: string,
-  queryClient?: SqliteQueryClient,
+  queryClient?: DbClient,
 ): Promise<void> {
   const client = queryClient ?? await databasePool().connect()
   const ownsClient = !queryClient
@@ -1895,7 +1895,7 @@ export async function clearTechnicalAuditSnapshot(
   id: string,
   websiteUrl: string,
   diagnosisRunId: string,
-  queryClient?: SqliteQueryClient,
+  queryClient?: DbClient,
 ): Promise<boolean> {
   if (typeof diagnosisRunId !== 'string' || !diagnosisRunId.trim()) return false
   const executor = queryClient ?? databasePool()
@@ -1937,7 +1937,7 @@ export async function saveTechnicalAuditSnapshot(
   websiteUrl: string,
   snapshot: TechnicalAuditSnapshot,
   diagnosisRunId: string,
-  queryClient?: SqliteQueryClient,
+  queryClient?: DbClient,
 ): Promise<boolean> {
   if (typeof diagnosisRunId !== 'string' || !diagnosisRunId.trim()) return false
   const executor = queryClient ?? databasePool()
@@ -1969,8 +1969,15 @@ export async function saveTechnicalAuditSnapshot(
 }
 
 /** 进程内互斥（替代 pg advisory lock）；调用方不得跨网络请求持有。 */
-export async function withTechnicalAuditLock<T>(id: string, operation: (client: SqliteQueryClient) => Promise<T>): Promise<T> {
-  return withNamedLock(`technical-audit:${id}`, () => operation(databasePool()), 'technical_audit_in_progress')
+export async function withTechnicalAuditLock<T>(id: string, operation: (client: DbClient) => Promise<T>): Promise<T> {
+  return withNamedLock(`technical-audit:${id}`, async () => {
+    const client = await databasePool().connect()
+    try {
+      return await operation(client)
+    } finally {
+      client.release()
+    }
+  }, 'technical_audit_in_progress')
 }
 
 function diagnosisRunFromRow(row: Record<string, unknown>): DiagnosisRun {
@@ -2046,7 +2053,7 @@ function articleFromRow(row: Record<string, unknown>): ProjectArticle {
   }
 }
 
-async function getArticleBatches(id: string, queryClient?: SqliteQueryClient): Promise<ArticleBatch[]> {
+async function getArticleBatches(id: string, queryClient?: DbClient): Promise<ArticleBatch[]> {
   const result = await (queryClient ?? databasePool()).query(
     `select b.id as batch_id, b.project_id, b.requested_model, b.response_model, b.generated_at as batch_generated_at,
             a.id, a.batch_id as article_batch_id, a.project_id as article_project_id, a.title,
@@ -2111,7 +2118,7 @@ async function getArticleBatches(id: string, queryClient?: SqliteQueryClient): P
   return [...batches.values()]
 }
 
-async function getDiagnosisAnswers(runId: string, queryClient?: SqliteQueryClient): Promise<DiagnosisAnswer[]> {
+async function getDiagnosisAnswers(runId: string, queryClient?: DbClient): Promise<DiagnosisAnswer[]> {
   const answerResult = await (queryClient ?? databasePool()).query(
     `select position, question, status, answer_text, citation_urls, response_model,
             recommended, official_citation, error, started_at, completed_at
@@ -2123,7 +2130,7 @@ async function getDiagnosisAnswers(runId: string, queryClient?: SqliteQueryClien
   return answerResult.rows.map(diagnosisAnswerFromRow)
 }
 
-export async function getInitialDiagnosis(id: string, queryClient?: SqliteQueryClient): Promise<InitialDiagnosis> {
+export async function getInitialDiagnosis(id: string, queryClient?: DbClient): Promise<InitialDiagnosis> {
   const runResult = await (queryClient ?? databasePool()).query(
     `select id, run_type, status, requested_model, round_number, published_article_count,
             started_at, completed_at, summary_analysis, summary_model, summary_error,
@@ -2323,7 +2330,7 @@ export async function markInitialDiagnosisReportRefreshFailed(
  */
 export async function getMonitoringDeliveryReportMetadata(
   projectId: string,
-  queryClient?: SqliteQueryClient,
+  queryClient?: DbClient,
 ): Promise<DeliveryReportMetadata> {
   const result = await (queryClient ?? databasePool()).query<{
     source_run_id: unknown
@@ -2508,7 +2515,7 @@ export async function getMonitoringDeliveryReportPdf(projectId: string): Promise
   }
 }
 
-export async function getMonitoringRuns(id: string, queryClient?: SqliteQueryClient): Promise<MonitoringRun[]> {
+export async function getMonitoringRuns(id: string, queryClient?: DbClient): Promise<MonitoringRun[]> {
   const runResult = await (queryClient ?? databasePool()).query(
     `select id, run_type, status, requested_model, round_number, published_article_count,
             started_at, completed_at, summary_analysis, summary_model, summary_error,
@@ -2527,7 +2534,7 @@ export async function getMonitoringRuns(id: string, queryClient?: SqliteQueryCli
   return runs
 }
 
-export async function getProjectDetail(id: string, queryClient?: SqliteQueryClient): Promise<ProjectDetail | null> {
+export async function getProjectDetail(id: string, queryClient?: DbClient): Promise<ProjectDetail | null> {
   const project = await getProject(id, queryClient)
   if (!project) return null
   return {
@@ -4095,7 +4102,7 @@ function articleProjectPreflight(project: Project, initialDiagnosis: InitialDiag
   }
 }
 
-function isSqliteQueryClient(value: unknown): value is SqliteQueryClient {
+function isDbClient(value: unknown): value is DbClient {
   return Boolean(value && typeof value === 'object' && typeof (value as { query?: unknown }).query === 'function')
 }
 
@@ -4112,8 +4119,15 @@ function articleRowSelect(alias?: string): string {
 }
 
 /** 进程内互斥（替代 pg advisory lock）：同一项目的标题生成串行化。 */
-export async function withArticleTitleGenerationLock<T>(projectId: string, operation: (client: SqliteQueryClient) => Promise<T>): Promise<T> {
-  return withNamedLock(`article-title-generation:${projectId}`, () => operation(databasePool()), 'article_generation_in_progress')
+export async function withArticleTitleGenerationLock<T>(projectId: string, operation: (client: DbClient) => Promise<T>): Promise<T> {
+  return withNamedLock(`article-title-generation:${projectId}`, async () => {
+    const client = await databasePool().connect()
+    try {
+      return await operation(client)
+    } finally {
+      client.release()
+    }
+  }, 'article_generation_in_progress')
 }
 
 export async function saveArticleBatch(
@@ -4184,7 +4198,7 @@ export function saveArticleTitles(
   responseModel: string | null,
   titles: GeneratedArticleTitle[],
   sourceDiagnosisRunId: string | null,
-  queryClient?: SqliteQueryClient,
+  queryClient?: DbClient,
   expectedContentAuditStartedAt?: string,
   expectedProjectUpdatedAt?: string,
   aiTaskId?: string,
@@ -4197,7 +4211,7 @@ export function saveArticleTitles(
   titles: GeneratedArticleTitle[],
   websiteCacheExpectation: ArticleWebsiteCacheExpectation,
   sourceDiagnosisRunId: string | null,
-  queryClient?: SqliteQueryClient,
+  queryClient?: DbClient,
   expectedContentAuditStartedAt?: string,
   expectedProjectUpdatedAt?: string,
   aiTaskId?: string,
@@ -4208,8 +4222,8 @@ export async function saveArticleTitles(
   responseModel: string | null,
   titles: GeneratedArticleTitle[],
   sourceOrWebsiteExpectation: string | null | ArticleWebsiteCacheExpectation,
-  queryClientOrSource?: SqliteQueryClient | string | null,
-  expectedContentAuditOrClient?: string | SqliteQueryClient,
+  queryClientOrSource?: DbClient | string | null,
+  expectedContentAuditOrClient?: string | DbClient,
   expectedProjectOrAudit?: string,
   aiTaskIdOrProject?: string,
   legacyAiTaskId?: string,
@@ -4226,8 +4240,8 @@ export async function saveArticleTitles(
     ? typeof queryClientOrSource === 'string' ? queryClientOrSource : null
     : sourceOrWebsiteExpectation
   const queryClient = legacyCall
-    ? isSqliteQueryClient(expectedContentAuditOrClient) ? expectedContentAuditOrClient : undefined
-    : isSqliteQueryClient(queryClientOrSource) ? queryClientOrSource : undefined
+    ? isDbClient(expectedContentAuditOrClient) ? expectedContentAuditOrClient : undefined
+    : isDbClient(queryClientOrSource) ? queryClientOrSource : undefined
   const expectedContentAuditStartedAt = legacyCall
     ? expectedProjectOrAudit
     : typeof expectedContentAuditOrClient === 'string' ? expectedContentAuditOrClient : undefined

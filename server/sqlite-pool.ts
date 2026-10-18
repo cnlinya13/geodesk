@@ -9,20 +9,11 @@ import { mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import type { DbAdapter, DbClient, DbQueryResult } from './db-adapter.ts'
 
-export type SqliteQueryResult = {
-  rows: Array<Record<string, unknown>>
-  rowCount: number
-}
+export type SqliteQueryResult = DbQueryResult
 
-export type SqliteQueryClient = {
-  query: <T extends Record<string, unknown> = Record<string, unknown>>(
-    text: string,
-    params?: unknown[],
-  ) => Promise<{ rows: T[]; rowCount: number }>
-  release: (error?: unknown) => void
-  execScript: (script: string) => Promise<void>
-}
+export type SqliteQueryClient = DbClient
 
 /** 把 $N 占位符按出现顺序换成 ?，并按编号重排参数。
  *  pg 允许 $N 不连续或乱序（如跳过 $7），直接 $N→? 会导致参数错位。 */
@@ -171,7 +162,7 @@ function normalizeParam(value: unknown): SQLInputValue {
 const READER_SQL = /^\s*(select|with|values|explain|pragma)\b/i
 const RETURNING_SQL = /\breturning\b/i
 
-export class SqlitePool {
+export class SqlitePool implements DbAdapter {
   private db: DatabaseSync | undefined
 
   private open(): DatabaseSync {
@@ -268,7 +259,7 @@ export class SqlitePool {
   }
 
   /** 单连接：client 与 pool 是同一个库，release 是空操作。 */
-  async connect(): Promise<SqliteQueryClient> {
+  async connect(): Promise<DbClient> {
     const pool = this
     return {
       query: this.query.bind(this),

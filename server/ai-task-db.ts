@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import type { SqliteQueryClient } from './sqlite-pool.ts'
+import type { DbClient } from './db-adapter.ts'
 import { databasePool } from './db.ts'
 import { QUESTION_TOTAL } from '../src/business-rules.ts'
 
@@ -233,7 +233,7 @@ export async function failAiTask(taskId: string, error: unknown, result?: Record
 }
 
 /** Delete all task rows for a reset inside the caller's existing transaction. */
-export async function deleteAiTasksForProject(projectId: string, client?: SqliteQueryClient): Promise<number> {
+export async function deleteAiTasksForProject(projectId: string, client?: DbClient): Promise<number> {
   const executor = client ?? databasePool()
   const result = await executor.query('delete from geo_ai_tasks where project_id = $1', [projectId])
   return result.rowCount ?? 0
@@ -251,7 +251,7 @@ type StartupCleanupCounts = {
 }
 
 /** Reconcile project-level initial-diagnosis aggregates after deleting a run. */
-async function reconcileInitialDiagnosis(projectId: string, client: SqliteQueryClient): Promise<void> {
+async function reconcileInitialDiagnosis(projectId: string, client: DbClient): Promise<void> {
   const completed = await client.query<{
     started_at: Date | string | null
     completed_at: Date | string | null
