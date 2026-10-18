@@ -2,173 +2,65 @@
 
 [中文](README.cn.md) | English
 
-GEODesk is a workspace for website operators, content teams, and GEO practitioners to monitor, diagnose, and improve visibility in AI search. Its current focus is Chinese-language websites.
+**In the age of AI search, what does your website look like in AI's answers?**
 
-It brings fixed question sets, original model answers, citation evidence, website checks, and follow-up monitoring into one workflow. Use it to understand how AI systems describe and cite a website, identify issues worth addressing, and compare results before and after changes.
+Users no longer click through 10 blue links — they ask AI for answers directly. Is your website recommended, cited, or invisible in AI responses? GEODesk is the monitoring and diagnosis workspace built to answer that question, currently focused on Chinese-language websites.
 
-> This version is a local, single-user MVP. Doubao is the primary real model integration. A synthetic demo is available without model credentials, but the project does not promise improvements in search rankings, recommendation rates, or citation rates. Model selection, regional configuration, and global GEO monitoring remain roadmap items.
+## An example
 
-## Core workflow
+You run a travel website and wonder: when someone asks Doubao for "family-friendly Dalian travel recommendations", does your site show up? GEODesk asks the model a fixed set of 20 questions and tells you: your site was mentioned in 2 out of 10 recommendation questions, and your official site was never cited; the diagnosis report points out your guides lack citable structured information; you publish 3 new articles following the writing tasks; next round, your recommendation rate rises from 20% to 50%. That is one full GEODesk loop.
 
-```text
-Create a project → Define questions → Initial diagnosis → Checks and optimization tasks → Implement manually → Re-measure with the same scope
-```
+## What it solves
 
-| Stage | Current functionality |
-| --- | --- |
-| Project and scope | Manage websites and optimization targets; maintain 20 questions: 10 recommendation, 6 selection, and 4 decision questions; lock questions. |
-| Initial diagnosis | Store per-question model answers, citation links, and model information; calculate recommendation and official-site citation rates separately; provide diagnosis reports and PDF functionality. |
-| Website checks | Run non-AI technical checks separately from model-assisted content checks, retaining issues and evidence. |
-| Optimization tasks | Generate article tasks and content; users publish externally and then confirm publication manually in the workspace. |
-| Ongoing monitoring | Start separate monitoring rounds and compare results using the same question scope. |
-| State and data | Persist business results and background task states in a local SQLite file, with migrations and task progress queries. |
+- **See yourself through AI's eyes**: real models answer a fixed question set; every original answer, citation link, and model info is kept, producing recommendation and official-site citation rates — no more guessing.
+- **Make optimization measurable**: monitoring runs in rounds; one click compares with the previous round, looking only at structural changes (recommendation flips, citation flips, link changes) — the data tells whether your changes worked.
+- **From diagnosis to action**: diagnosis reports pinpoint issues, technical and content audits provide evidence, writing tasks produce optimized content, and you confirm manually after publishing externally.
+- **Ready out of the box, easy to extend**: models plug in via `ModelAdapter` (Doubao is the first), databases via the `DbAdapter` interface (SQLite bundled; PostgreSQL / MySQL / MariaDB verified pluggable).
 
-The current version does not include a complete multi-user account and permission system, automatic publishing, scheduled monitoring by default, or centrally funded model usage. **Do not expose the current API directly to the public internet.**
+## How it differs from traditional SEO tools
 
-## Quick start: no model credentials required
+| | Traditional SEO tools | GEODesk |
+|---|---|---|
+| Monitors | Search engine rankings | Recommendations and citations in AI answers |
+| Data you get | Rank positions, estimated traffic | Original model answers, citation links, recommendation rates |
+| Optimization loop | Keywords, backlinks | Diagnose → writing tasks → round-over-round validation |
 
-### Prerequisites
-
-- Node.js 24; the repository's `.nvmrc` specifies 24.18.0.
-- npm 11 or later.
-- Download or clone the project, then run the following commands from the `geodesk` project root.
-
-```bash
-npm ci
-npm run demo
-```
-
-Open **http://127.0.0.1:5174**. The demo API uses `127.0.0.1:8788`.
-
-The demo requires no database file, `.env.local`, or model API key. Installing dependencies may require internet access; the running demo does not request real websites or models. It uses synthetic data stored in memory, which resets when the service restarts.
-
-Try this flow: create a project → generate and confirm 20 questions → view synthetic diagnosis and citations → generate one optimization task and article body → manually confirm publication → complete one synthetic monitoring round.
-
-The demo does not perform real technical checks, content checks, or PDF generation. Those operations are disabled or explicitly reported as unsupported. It demonstrates interactions, not real model performance or database persistence acceptance.
-
-Press `Ctrl+C` in the terminal to stop the demo.
-
-### One-click deploy to a server
-
-To put the synthetic demo online for others to try (no database, no model key, no login needed):
+## Try it in minutes (no model key needed)
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/cnlinya13/geodesk/main/deploy.sh | sudo bash
 ```
 
-Then open `http://<your-server-ip>`. To pin a version or bind a domain (enables HTTPS via certbot):
+One command deploys everything (Node install, frontend build, systemd service, nginx reverse proxy) — IP access by default, HTTPS with a domain optionally. The demo site uses synthetic data, never touches real websites or models, and resets on restart.
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/cnlinya13/geodesk/main/deploy.sh | sudo bash -s v0.3.2 demo.example.com
-```
+Local try: `npm ci && npm run demo`, then open http://127.0.0.1:5174.
 
-See `deploy.sh` (`--help`) for all options. Re-running the command updates to the specified version.
+## Feature overview
 
-## Real mode: a local SQLite database and Doubao configuration
+| Stage | Capabilities |
+|---|---|
+| Project & question set | Manage websites and optimization targets; 20 locked questions (10 recommendation / 6 selection / 4 decision), immutable once locked |
+| Initial diagnosis | Per-question original answers, citation links, model info; recommendation / official-site citation rates; diagnosis reports + PDF export |
+| Website checks | Technical audits (non-AI) separated from model-assisted content audits; issues and evidence kept apart |
+| Optimization tasks | Generate writing tasks and article bodies; confirm manually after publishing externally |
+| Ongoing monitoring | New rounds on the same question set; pairwise comparison of changes |
 
-### 1. Install and configure
+## Tech
 
-Real mode needs no database server. It uses a local SQLite file (via Node's built-in `node:sqlite`), created automatically at `./data/geodesk.db` on first run.
+React + TypeScript + Vite frontend; Node 24 native `node:http` server; built-in SQLite database (zero dependencies — the file is the database); pluggable adapters for both models and databases.
 
-```bash
-npm ci
-cp .env.example .env.local
-```
+## Current status
 
-Edit `.env.local`:
+Local single-user MVP: account system (admin / regular user), Doubao as the first real model, synthetic demo site ready out of the box with no login.
 
-- `DATABASE_PATH`: path to the SQLite file. Leave empty to use the default `./data/geodesk.db`.
-- `DATA_DIR`: directory for the default database file. Leave empty to use `./data`.
-- `DOUBAO_API_KEY`, `DOUBAO_MODEL_ID`, `DOUBAO_API_ENDPOINT`: your Doubao service configuration. Real model operations require all three; the endpoint must satisfy the client's HTTPS validation.
-
-Do not commit `.env.local` or configure model keys in the browser. The server also accepts a complete process environment; the file itself is optional.
-
-### 2. Migrate, check, and start
-
-```bash
-npm run migrate:db
-npm run check:db
-npm run dev
-```
-
-Migrations change the database schema. `check:db` checks the database file and existing schema, so migrate before checking on first use. Back up `geodesk.db` before schema changes if it holds data you care about.
-
-| Service | Address |
-| --- | --- |
-| Web | http://127.0.0.1:5173 |
-| API | http://127.0.0.1:8787 |
-
-Press `Ctrl+C` to stop the application. The SQLite database file is left in place; back it up if it holds data you care about.
-
-## Architecture and data boundaries
-
-```text
-Browser: React / TypeScript / Vite
-    │ Same-origin /api proxy
-Local Node.js HTTP API
-    ├── SQLite: projects, questions, diagnosis answers, articles, audit results, and task states
-    ├── Doubao: server-side model requests
-    └── Website reading: technical and content checks
-```
-
-The browser neither connects directly to the database nor holds model API keys. Real mode stores original diagnosis answers and citation evidence; do not commit these business records or database backups to a public repository. Website reading and model requests may process business information entered into a project. Assess provider, regional, and data compliance requirements before use.
-
-Users configure and pay for model accounts, usage, databases, and network services. Any support from Codex for Open Source is for project development and maintenance; it does not imply payment for GEO monitoring model usage.
-
-See the [architecture](docs/architecture.md) and [business rules](docs/business-rules.md) for details.
-
-## Development and verification
-
-After installing dependencies, run:
-
-```bash
-npm test
-npm run build
-npm run smoke:demo
-```
-
-- `test`: unit, boundary, and API contract tests; not proof of real model output quality.
-- `build`: TypeScript checks and a frontend build; not a complete production deployment.
-- `smoke:demo`: automated synthetic workflow checks. Ensure the demo ports are not occupied by another task before running it.
-- `preview`: previews only the frontend build; it does not start the real API.
-
-Before release, also audit dependencies and run the public-content scan in a **clean delivery copy**:
-
-```bash
-npm audit
-npm run check:public
-```
-
-`check:public` examines the actual file tree, not only Git ignore rules. It reports development directories containing `node_modules`, `dist`, `.env.local`, or `.git`. Do not delete active configuration or repository history just to pass this check; prepare a separate clean copy instead. Without gitleaks installed, the script runs only custom checks, not a complete credential audit of repository history.
-
-### Current verification limits
-
-- Dependency audit findings for `sanitize-html` and `undici` were fixed in 0.1.1 (upgraded to 2.17.7 and 7.29.1) with regression checks (`npm test`, `npm run build`, `npm run smoke:demo`).
-- Migration acceptance was completed in 0.1.2 against an isolated PostgreSQL 16 instance (pre-SQLite era): all 18 migrations applied cleanly on a fresh database and `npm run check:db` reported the schema ready.
-- Local Host/Origin validation does not replace production-grade authentication and authorization.
-
-See the [testing guide](docs/testing.md) and [release checklist](docs/release-checklist.md).
-
-## Contributing
-
-Reproducible bug reports, documentation improvements, and focused pull requests are welcome. For changes to business rules or database migrations, explain the data impact and include relevant tests.
-
-- [Contributing guide](CONTRIBUTING.md)
-- [Code of conduct](CODE_OF_CONDUCT.md)
-- [Security reporting](SECURITY.md): do not post keys, customer data, or exploit details in public issues.
-- [Changelog](CHANGELOG.md)
+> No promise of improved search rankings, recommendation or citation rates. Do not expose the current API directly to the public internet.
 
 ## Roadmap
 
-These capabilities are not yet complete and are not commitments of the current version:
+- More model integrations (DeepSeek, Qwen, ChatGPT… one at a time)
+- Multi-user & permissions, scheduled monitoring
+- Global GEO monitoring, regional configuration
 
-- Replaceable model adapters and user-selected providers.
-- Configuration of models, regions, budgets, and monitoring targets.
-- Common rules for cross-model answers, citation evidence, and result comparisons.
-- Regional and global GEO monitoring.
+## Contributing
 
-## License
-
-Project code is available under the [MIT License](LICENSE). Third-party dependencies and the Noto Sans SC font retain their own licenses; see [third-party notices](THIRD_PARTY_NOTICES.md).
-
-`private: true` in `package.json` prevents accidental publication to npm. It does not restrict releasing the code under MIT.
+Open source under the MIT license. Issues and PRs welcome.
