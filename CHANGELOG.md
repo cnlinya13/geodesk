@@ -2,11 +2,19 @@
 
 ## Unreleased
 
-- v0.4.0 跨模型对比（轮次对比先行）：监测页当前轮次一键「对比上一轮」（上一轮按轮次顺序取最近一个已完成的轮次，第 1 轮的上轮为初始诊断）；对比弹窗展示两轮概览（模型/完成时间/推荐率/引用率对照与百分点变化）与逐题变化（只看结构化变化：推荐翻转、引用翻转、引用链接增减；答案文本措辞差异不计入）；无变化的问题折叠收起。纯前端实现（`src/run-compare.ts` 成对比较纯函数，未来多模型同跑可复用）。
+- v0.5.0 跨模型对比（轮次对比先行）：监测页当前轮次一键「对比上一轮」（上一轮按轮次顺序取最近一个已完成的轮次，第 1 轮的上轮为初始诊断）；对比弹窗展示两轮概览（模型/完成时间/推荐率/引用率对照与百分点变化）与逐题变化（只看结构化变化：推荐翻转、引用翻转、引用链接增减；答案文本措辞差异不计入）；无变化的问题折叠收起。纯前端实现（`src/run-compare.ts` 成对比较纯函数，未来多模型同跑可复用）。
 
 ## 0.4.0 - 2026-10-18
 
 - 数据库改走 `DbAdapter` 适配器接入（`server/db-adapter.ts`）：业务代码只依赖接口，查询统一 pg 风格 `$N` 占位符，方言翻译下沉到适配器；当前内置实现为 SQLite（Node 24 内置 `node:sqlite`，零新增依赖），连接配置改为 `DATABASE_PATH`/`DATA_DIR` 文件路径，WAL 模式；21 个 migration 重写为 SQLite 方言（从空库开始，无需数据迁移）；`pg` 依赖与 compose 文件已移除。换其他数据库按 `docs/database-adapter.md` 自行实现适配器（`DB_KIND=external` + `DB_ADAPTER_PATH`），无需改业务代码。已验证：SQLite（内置）、PostgreSQL 16、MySQL 8.0、MariaDB 11（后三者经 scratch 适配器实测 migration/CRUD 全过）。`npm run migrate:db` / `npm run check:db` / 全部 793 个测试 / 构建均验证通过。
+
+## 0.3.2 - 2026-10-18
+
+- 新增一键部署脚本 `deploy.sh`：`curl -fsSL …/deploy.sh | sudo bash` 一条命令拉取最新版并完成配置（Node 安装、前端构建、systemd 服务、nginx 反向代理），默认 IP 访问、可选绑定域名自动配 HTTPS；完全非交互、幂等可重跑；README 中英双语加入一键部署说明。
+
+## 0.3.1 - 2026-10-17
+
+- 公开演示免登录：demo server 新增演示会话接口（`GET /api/auth/session`、`POST /api/auth/login`、`POST /api/auth/logout` 返回演示用户，改密接口打桩通过），演示站开箱即用，不再卡在登录页；真实模式的账号体系不受影响。
 
 ## 0.3.0 - 2026-10-17
 

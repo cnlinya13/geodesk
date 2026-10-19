@@ -33,7 +33,7 @@ const pgMock = vi.hoisted(() => {
   return { state, Pool: FakePool }
 })
 
-vi.mock('pg', () => ({ Pool: pgMock.Pool }))
+vi.mock('./sqlite-pool.ts', () => ({ SqlitePool: pgMock.Pool }))
 
 interface FakeResponse {
   statusCode: number

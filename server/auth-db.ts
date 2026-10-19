@@ -35,8 +35,8 @@ export function toPublicUser(row: Record<string, unknown>): PublicUser {
     username: String(row.username),
     displayName: String(row.display_name),
     role: row.role === 'admin' ? 'admin' : 'user',
-    isActive: row.is_active === true,
-    mustChangePassword: row.must_change_password === true,
+    isActive: row.is_active === true || row.is_active === 1,
+    mustChangePassword: row.must_change_password === true || row.must_change_password === 1,
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
   }
