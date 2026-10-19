@@ -28,7 +28,6 @@
     "lucide-react": "^0.468.0",
     "microdata-rdf-streaming-parser": "^3.0.0",
     "node-html-parser": "^7.1.0",
-    "pg": "^8.23.0",
     "rdfa-streaming-parser": "^3.0.2",
     "react": "19.2.8",
     "react-dom": "19.2.8",
